@@ -1,77 +1,153 @@
-@Service public class LitemallAftersaleService {
-  @Resource private LitemallAftersaleMapper aftersaleMapper;
-  public LitemallAftersale findById(  Integer id){
-    return aftersaleMapper.selectByPrimaryKey(id);
-  }
-  public LitemallAftersale findById(  Integer userId,  Integer id){
-    LitemallAftersaleExample example=new LitemallAftersaleExample();
-    example.or().andIdEqualTo(id).andUserIdEqualTo(userId).andDeletedEqualTo(false);
-    return aftersaleMapper.selectOneByExample(example);
-  }
-  public List<LitemallAftersale> queryList(  Integer userId,  Short status,  Integer page,  Integer limit,  String sort,  String order){
-    LitemallAftersaleExample example=new LitemallAftersaleExample();
-    LitemallAftersaleExample.Criteria criteria=example.or();
-    criteria.andUserIdEqualTo(userId);
-    if (status != null) {
-      criteria.andStatusEqualTo(status);
+package org.linlinjava.litemall.db.service;
+
+import org.linlinjava.litemall.db.dao.LitemallAftersaleMapper;
+import org.linlinjava.litemall.db.domain.LitemallAftersale;
+import org.linlinjava.litemall.db.domain.LitemallAftersaleExample;
+import org.linlinjava.litemall.db.domain.LitemallAftersale.Column;
+
+import com.github.pagehelper.PageHelper;
+
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+
+import javax.annotation.Resource;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Random;
+
+/**
+ * Service responsible for user aftersale (post-sale) operations.
+ *
+ * It encapsulates access to {@link LitemallAftersaleMapper} and centralizes
+ * logic for:
+ *  - generating aftersale service codes,
+ *  - building query filters,
+ *  - applying soft delete rules (logical deletion),
+ *  - enforcing user ownership constraints.
+ */
+@Service
+public class LitemallAftersaleService {
+
+    /**
+     * MyBatis mapper that performs CRUD operations on the aftersale table.
+     */
+    @Resource
+    private LitemallAftersaleMapper aftersaleMapper;
+
+    /**
+     * Find an aftersale record by primary key.
+     * <p>
+     * This variant does not validate the user; it is typically used
+     * in internal/admin flows where user ownership is managed elsewhere.
+     */
+    public LitemallAftersale findById(Integer id) {
+        return aftersaleMapper.selectByPrimaryKey(id);
     }
-    criteria.andDeletedEqualTo(false);
-    if (!StringUtils.isEmpty(sort) && !StringUtils.isEmpty(order)) {
-      example.setOrderByClause(sort + " " + order);
+
+    /**
+     * Find an aftersale record by id, enforcing:
+     * <ul>
+     *   <li>the record belongs to the given {@code userId};</li>
+     *   <li>the record is not logically deleted.</li>
+     * </ul>
+     * This is the safe variant for user-facing flows.
+     */
+    public LitemallAftersale findById(Integer userId, Integer id) {
+        LitemallAftersaleExample example = new LitemallAftersaleExample();
+        example.or()
+                .andIdEqualTo(id)
+                .andUserIdEqualTo(userId)
+                .andDeletedEqualTo(false);
+        return aftersaleMapper.selectOneByExample(example);
     }
- else {
-      example.setOrderByClause(LitemallAftersale.Column.addTime.desc());
+
+    /**
+     * Paged query of a user's aftersale requests.
+     * <p>
+     * Supports:
+     * <ul>
+     *   <li>optional filter by status (e.g. applied, approved, rejected);</li>
+     *   <li>soft-delete filtering (only non-deleted records);</li>
+     *   <li>dynamic sorting ({@code sort} + {@code order}) or default
+     *       sorting by {@code addTime} if not provided.</li>
+     * </ul>
+     */
+    public List<LitemallAftersale> queryList(Integer userId,
+                                             Short status,
+                                             Integer page,
+                                             Integer limit,
+                                             String sort,
+                                             String order) {
+
+        LitemallAftersaleExample example = new LitemallAftersaleExample();
+        LitemallAftersaleExample.Criteria criteria = example.or();
+
+        // Always filter by user that owns the aftersale record
+        criteria.andUserIdEqualTo(userId);
+
+        // Optional filter by business status of the aftersale
+        if (status != null) {
+            criteria.andStatusEqualTo(status);
+        }
+
+        // Ignore logically deleted entries
+        criteria.andDeletedEqualTo(false);
+
+        // Apply dynamic sorting if both sort field and order are provided
+        if (!StringUtils.isEmpty(sort) && !StringUtils.isEmpty(order)) {
+            example.setOrderByClause(sort + " " + order);
+        } else {
+            // Fallback: sort by creation date (most recent first)
+            example.setOrderByClause(Column.addTime.desc());
+        }
+
+        // Integrates MyBatis with PageHelper to apply pagination
+        PageHelper.startPage(page, limit);
+        return aftersaleMapper.selectByExample(example);
     }
-    PageHelper.startPage(page,limit);
-    return aftersaleMapper.selectByExample(example);
-  }
-  private String getRandomNum(  Integer num){
-    String base="0123456789";
-    Random random=new Random();
-    StringBuffer sb=new StringBuffer();
-    for (int i=0; i < num; i++) {
-      int number=random.nextInt(base.length());
-      sb.append(base.charAt(number));
+
+    /**
+     * Generates a random numeric suffix with the given number of digits.
+     * <p>
+     * Used as the random part of the {@code aftersaleSn} code.
+     */
+    private String getRandomNum(Integer num) {
+        String base = "0123456789";
+        Random random = new Random();
+        StringBuffer sb = new StringBuffer();
+
+        for (int i = 0; i < num; i++) {
+            int number = random.nextInt(base.length());
+            sb.append(base.charAt(number));
+        }
+
+        return sb.toString();
     }
-    return sb.toString();
-  }
-  public int countByAftersaleSn(  Integer userId,  String aftersaleSn){
-    LitemallAftersaleExample example=new LitemallAftersaleExample();
-    example.or().andUserIdEqualTo(userId).andAftersaleSnEqualTo(aftersaleSn).andDeletedEqualTo(false);
-    return (int)aftersaleMapper.countByExample(example);
-  }
-  public String generateAftersaleSn(  Integer userId){
-    DateTimeFormatter df=DateTimeFormatter.ofPattern("yyyyMMdd");
-    String now=df.format(LocalDate.now());
-    String aftersaleSn=now + getRandomNum(6);
-    while (countByAftersaleSn(userId,aftersaleSn) != 0) {
-      aftersaleSn=now + getRandomNum(6);
+
+    /**
+     * Counts how many non-deleted aftersale records a user has
+     * with the given {@code aftersaleSn}.
+     * <p>
+     * This is used to ensure practical uniqueness of an aftersale code
+     * per user.
+     */
+    public int countByAftersaleSn(Integer userId, String aftersaleSn) {
+        LitemallAftersaleExample example = new LitemallAftersaleExample();
+        example.or()
+                .andUserIdEqualTo(userId)
+                .andAftersaleSnEqualTo(aftersaleSn)
+                .andDeletedEqualTo(false);
+        return (int) aftersaleMapper.countByExample(example);
     }
-    return aftersaleSn;
-  }
-  public void add(  LitemallAftersale aftersale){
-    aftersale.setAddTime(LocalDateTime.now());
-    aftersale.setUpdateTime(LocalDateTime.now());
-    aftersaleMapper.insertSelective(aftersale);
-  }
-  public void deleteById(  Integer id){
-    aftersaleMapper.logicalDeleteByPrimaryKey(id);
-  }
-  public void deleteByOrderId(  Integer userId,  Integer orderId){
-    LitemallAftersaleExample example=new LitemallAftersaleExample();
-    example.or().andOrderIdEqualTo(orderId).andUserIdEqualTo(userId).andDeletedEqualTo(false);
-    LitemallAftersale aftersale=new LitemallAftersale();
-    aftersale.setUpdateTime(LocalDateTime.now());
-    aftersale.setDeleted(true);
-    aftersaleMapper.updateByExampleSelective(aftersale,example);
-  }
-  public void updateById(  LitemallAftersale aftersale){
-    aftersale.setUpdateTime(LocalDateTime.now());
-    aftersaleMapper.updateByPrimaryKeySelective(aftersale);
-  }
-  public LitemallAftersale findByOrderId(  Integer userId,  Integer orderId){
-    LitemallAftersaleExample example=new LitemallAftersaleExample();
-    example.or().andOrderIdEqualTo(orderId).andUserIdEqualTo(userId).andDeletedEqualTo(false);
-    return aftersaleMapper.selectOneByExample(example);
-  }
-}
+
+    /**
+     * Generates a unique aftersale code ({@code aftersaleSn}) for a user.
+     * <p>
+     * Format:
+     * <pre>
+     *   yyyyMMdd + 6-digit random numeric suffix
+     * </pre>
+     * If a collision is detected for the given user,*
