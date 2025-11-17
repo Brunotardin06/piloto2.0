@@ -18,16 +18,16 @@
 
 package org.apache.tools.ant;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.util.Hashtable;
-import java.util.Locale;
-import java.util.Vector;
-import org.apache.tools.ant.helper.ProjectHelper2;
-import org.apache.tools.ant.util.LoaderUtils;
-import org.xml.sax.AttributeList;
+import java.io.BufferedReader;          // BufferedReader: incremental reading of service descriptors
+import java.io.File;                    // File: bridge to filesystem-based build files
+import java.io.InputStream;             // InputStream: raw resource stream for service discovery
+import java.io.InputStreamReader;       // InputStreamReader: charset-aware wrapper over service stream
+import java.util.Hashtable;             // Hashtable: legacy map for project properties
+import java.util.Locale;                // Locale: normalized case-insensitive comparisons
+import java.util.Vector;                // Vector: legacy list used in parsing helpers
+import org.apache.tools.ant.helper.ProjectHelper2; // ProjectHelper2: default concrete XML parser for Ant projects
+import org.apache.tools.ant.util.LoaderUtils;      // LoaderUtils: helper for resolving context class loaders
+import org.xml.sax.AttributeList;       // AttributeList: external SAX representation of XML attributes
 
 /**
  * Configures a Project (complete with Targets and Tasks) based on
@@ -91,9 +91,9 @@ public class ProjectHelper {
      */
     public static void configureProject(Project project, File buildFile)
         throws BuildException {
-        ProjectHelper helper = ProjectHelper.getProjectHelper();
-        project.addReference(PROJECTHELPER_REFERENCE, helper);
-        helper.parse(project, buildFile);
+        ProjectHelper helper = ProjectHelper.getProjectHelper(); // getProjectHelper: resolve pluggable helper implementation
+        project.addReference(PROJECTHELPER_REFERENCE, helper);   // register helper instance as a project-scoped reference
+        helper.parse(project, buildFile);                        // delegate XML parsing and configuration to helper
     }
 
     /** Default constructor */
@@ -111,7 +111,7 @@ public class ProjectHelper {
     // Since the tree is composed of UE and RC - it can be reused !
     // protected Hashtable processedFiles=new Hashtable();
 
-    private Vector importStack = new Vector();
+    private Vector importStack = new Vector(); // importStack: tracks nested includes/imports for error tracing
 
     // Temporary - until we figure a better API
     /** EXPERIMENTAL WILL_CHANGE
@@ -149,7 +149,7 @@ public class ProjectHelper {
      */
     public void parse(Project project, Object source) throws BuildException {
         throw new BuildException("ProjectHelper.parse() must be implemented "
-            + "in a helper plugin " + this.getClass().getName());
+            + "in a helper plugin " + this.getClass().getName()); // message hints to concrete plugin implementors
     }
 
 
@@ -172,10 +172,10 @@ public class ProjectHelper {
         ProjectHelper helper = null;
 
         // First, try the system property
-        String helperClass = System.getProperty(HELPER_PROPERTY);
+        String helperClass = System.getProperty(HELPER_PROPERTY); // system property: user-specified helper override
         try {
             if (helperClass != null) {
-                helper = newHelper(helperClass);
+                helper = newHelper(helperClass);                  // reflectively create configured helper
             }
         } catch (SecurityException e) {
             System.out.println("Unable to load ProjectHelper class \""
@@ -187,13 +187,13 @@ public class ProjectHelper {
         // automatically if in CLASSPATH, with the right META-INF/services.
         if (helper == null) {
             try {
-                ClassLoader classLoader = LoaderUtils.getContextClassLoader();
+                ClassLoader classLoader = LoaderUtils.getContextClassLoader(); // context class loader: container-aware resolution
                 InputStream is = null;
                 if (classLoader != null) {
-                    is = classLoader.getResourceAsStream(SERVICE_ID);
+                    is = classLoader.getResourceAsStream(SERVICE_ID);          // lookup service descriptor in application classpath
                 }
                 if (is == null) {
-                    is = ClassLoader.getSystemResourceAsStream(SERVICE_ID);
+                    is = ClassLoader.getSystemResourceAsStream(SERVICE_ID);    // fallback to system class loader resource
                 }
 
                 if (is != null) {
@@ -201,19 +201,19 @@ public class ProjectHelper {
                     // It's a fix for bugs reported in xerces
                     InputStreamReader isr;
                     try {
-                        isr = new InputStreamReader(is, "UTF-8");
+                        isr = new InputStreamReader(is, "UTF-8");             // explicitly honor UTF-8 service encoding
                     } catch (java.io.UnsupportedEncodingException e) {
-                        isr = new InputStreamReader(is);
+                        isr = new InputStreamReader(is);                      // platform-default as last resort
                     }
-                    BufferedReader rd = new BufferedReader(isr);
+                    BufferedReader rd = new BufferedReader(isr);              // buffered reader for single-line service entry
 
-                    String helperClassName = rd.readLine();
+                    String helperClassName = rd.readLine();                   // read first implementation class from service file
                     rd.close();
 
                     if (helperClassName != null
                         && !"".equals(helperClassName)) {
 
-                        helper = newHelper(helperClassName);
+                        helper = newHelper(helperClassName);                  // instantiate helper discovered via service pattern
                     }
                 }
             } catch (Exception ex) {
@@ -225,7 +225,7 @@ public class ProjectHelper {
         if (helper != null) {
             return helper;
         } else {
-            return new ProjectHelper2();
+            return new ProjectHelper2();                                      // default fallback: built-in XML helper
         }
     }
 
@@ -244,20 +244,20 @@ public class ProjectHelper {
      */
     private static ProjectHelper newHelper(String helperClass)
         throws BuildException {
-        ClassLoader classLoader = LoaderUtils.getContextClassLoader();
+        ClassLoader classLoader = LoaderUtils.getContextClassLoader(); // use context loader to see app-provided helpers
         try {
             Class clazz = null;
             if (classLoader != null) {
                 try {
-                    clazz = classLoader.loadClass(helperClass);
+                    clazz = classLoader.loadClass(helperClass);        // attempt to load helper from application classpath
                 } catch (ClassNotFoundException ex) {
                     // try next method
                 }
             }
             if (clazz == null) {
-                clazz = Class.forName(helperClass);
+                clazz = Class.forName(helperClass);                    // fallback: load via default class loader
             }
-            return ((ProjectHelper) clazz.newInstance());
+            return ((ProjectHelper) clazz.newInstance());              // reflective instantiation of helper plugin
         } catch (Exception e) {
             throw new BuildException(e);
         }
@@ -274,11 +274,11 @@ public class ProjectHelper {
      * if the context class loader is unavailable.
      */
     public static ClassLoader getContextClassLoader() {
-        if (!LoaderUtils.isContextLoaderAvailable()) {
+        if (!LoaderUtils.isContextLoaderAvailable()) {          // delegating check to LoaderUtils helper
             return null;
         }
 
-        return LoaderUtils.getContextClassLoader();
+        return LoaderUtils.getContextClassLoader();             // unified entry point for context loader access
     }
 
     // -------------------- Static utils, used by most helpers ----------------
@@ -302,19 +302,19 @@ public class ProjectHelper {
     public static void configure(Object target, AttributeList attrs,
                                  Project project) throws BuildException {
         if (target instanceof TypeAdapter) {
-            target = ((TypeAdapter) target).getProxy();
+            target = ((TypeAdapter) target).getProxy();         // TypeAdapter: unwraps underlying implementation to configure
         }
 
         IntrospectionHelper ih =
-            IntrospectionHelper.getHelper(project, target.getClass());
+            IntrospectionHelper.getHelper(project, target.getClass()); // IntrospectionHelper: reflection-based property binder
 
         for (int i = 0; i < attrs.getLength(); i++) {
             // reflect these into the target
             String value = replaceProperties(project, attrs.getValue(i),
-                                             project.getProperties());
+                                             project.getProperties()); // resolve ${...} using project-wide properties
             try {
                 ih.setAttribute(project, target,
-                                attrs.getName(i).toLowerCase(Locale.US), value);
+                                attrs.getName(i).toLowerCase(Locale.US), value); // map XML attribute → Java bean setter
 
             } catch (BuildException be) {
                 // id attribute must be set externally
@@ -341,7 +341,7 @@ public class ProjectHelper {
      */
     public static void addText(Project project, Object target, char[] buf,
         int start, int count) throws BuildException {
-        addText(project, target, new String(buf, start, count));
+        addText(project, target, new String(buf, start, count)); // delegate char[] → String conversion to overload
     }
 
     /**
@@ -365,11 +365,11 @@ public class ProjectHelper {
         }
 
         if (target instanceof TypeAdapter) {
-            target = ((TypeAdapter) target).getProxy();
+            target = ((TypeAdapter) target).getProxy();         // unwrap adapted task/type before injecting text
         }
 
-        IntrospectionHelper.getHelper(project, target.getClass()).addText(project,
-            target, text);
+        IntrospectionHelper.getHelper(project, target.getClass())
+                           .addText(project, target, text);     // push character data into bean via helper strategy
     }
 
     /**
@@ -388,8 +388,8 @@ public class ProjectHelper {
     public static void storeChild(Project project, Object parent,
          Object child, String tag) {
         IntrospectionHelper ih
-            = IntrospectionHelper.getHelper(project, parent.getClass());
-        ih.storeElement(project, parent, child, tag);
+            = IntrospectionHelper.getHelper(project, parent.getClass()); // obtain helper bound to parent concrete type
+        ih.storeElement(project, parent, child, tag);                    // delegate parent–child wiring to helper policy
     }
 
     /**
@@ -415,7 +415,7 @@ public class ProjectHelper {
      public static String replaceProperties(Project project, String value)
             throws BuildException {
         // needed since project properties are not accessible
-         return project.replaceProperties(value);
+         return project.replaceProperties(value);              // delegate to Project's internal property resolution engine
      }
 
     /**
@@ -440,8 +440,8 @@ public class ProjectHelper {
      */
      public static String replaceProperties(Project project, String value,
          Hashtable keys) throws BuildException {
-        PropertyHelper ph = PropertyHelper.getPropertyHelper(project);
-        return ph.replaceProperties(null, value, keys);
+        PropertyHelper ph = PropertyHelper.getPropertyHelper(project); // PropertyHelper: pluggable property resolution strategy
+        return ph.replaceProperties(null, value, keys);               // perform interpolation using external property map
     }
 
     /**
@@ -467,7 +467,7 @@ public class ProjectHelper {
                                            Vector propertyRefs)
         throws BuildException {
         PropertyHelper.parsePropertyStringDefault(value, fragments,
-                propertyRefs);
+                propertyRefs);                                  // shared default parsing routine for ${...} expressions
     }
     /**
      * Map a namespaced {uri,name} to an internal string format.
@@ -480,9 +480,9 @@ public class ProjectHelper {
      */
     public static String genComponentName(String uri, String name) {
         if (uri == null || uri.equals("") || uri.equals(ANT_CORE_URI)) {
-            return name;
+            return name;                                       // core components are addressed by local name only
         }
-        return uri + ":" + name;
+        return uri + ":" + name;                               // namespaced components encoded as "uri:localName"
     }
 
     /**
@@ -499,7 +499,7 @@ public class ProjectHelper {
         if (index == -1) {
             return "";
         }
-        return componentName.substring(0, index);
+        return componentName.substring(0, index);              // returns everything before last ':' as namespace identifier
     }
 
     /**
@@ -511,9 +511,9 @@ public class ProjectHelper {
     public static String extractNameFromComponentName(String componentName) {
         int index = componentName.lastIndexOf(':');
         if (index == -1) {
-            return componentName;
+            return componentName;                              // non-namespaced name: use as is
         }
-        return componentName.substring(index + 1);
+        return componentName.substring(index + 1);             // local element name after namespace separator
     }
 
     /**
@@ -532,14 +532,14 @@ public class ProjectHelper {
         }
         String errorMessage
             = "The following error occurred while executing this line:"
-            + System.getProperty("line.separator")
+            + System.getProperty("line.separator")             // query standard line.separator from environment
             + ex.getLocation().toString()
             + ex.getMessage();
         if (newLocation == null) {
-            return new BuildException(errorMessage, ex);
+            return new BuildException(errorMessage, ex);       // wrap original exception, preserving causal chain
         } else {
             return new BuildException(
-                errorMessage, ex, newLocation);
+                errorMessage, ex, newLocation);                // attach explicit location of caller task in error report
         }
     }
 }
