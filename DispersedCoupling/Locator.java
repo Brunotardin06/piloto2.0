@@ -18,13 +18,12 @@
 package org.apache.tools.ant.launch;
 
 import java.net.MalformedURLException;
-
-import java.net.URL;
-import java.io.File;
-import java.io.FilenameFilter;
-import java.io.ByteArrayOutputStream;
+import java.net.URL;                      // URL: external representation of locations
+import java.io.File;                     // File: bridge to local filesystem
+import java.io.FilenameFilter;           // FilenameFilter: external callback for directory scanning
+import java.io.ByteArrayOutputStream;    // ByteArrayOutputStream: external buffer for decoded bytes
 import java.io.UnsupportedEncodingException;
-import java.text.CharacterIterator;
+import java.text.CharacterIterator;      // CharacterIterator: helper for walking strings
 import java.text.StringCharacterIterator;
 import java.util.Locale;
 
@@ -103,24 +102,24 @@ public final class Locator {
      */
     public static File getResourceSource(ClassLoader c, String resource) {
         if (c == null) {
-            c = Locator.class.getClassLoader();
+            c = Locator.class.getClassLoader(); // external loader for this class
         }
         URL url = null;
         if (c == null) {
-            url = ClassLoader.getSystemResource(resource);
+            url = ClassLoader.getSystemResource(resource); // system-level resource lookup
         } else {
-            url = c.getResource(resource);
+            url = c.getResource(resource);                 // ClassLoader: external resource resolution
         }
         if (url != null) {
             String u = url.toString();
             if (u.startsWith("jar:file:")) {
                 int pling = u.indexOf("!");
                 String jarName = u.substring(4, pling);
-                return new File(fromURI(jarName));
+                return new File(fromURI(jarName));         // File: maps jar URI to concrete archive on disk
             } else if (u.startsWith("file:")) {
                 int tail = u.indexOf(resource);
                 String dirName = u.substring(0, tail);
-                return new File(fromURI(dirName));
+                return new File(fromURI(dirName));         // external filesystem object for resource root
             }
         }
         return null;
@@ -147,7 +146,7 @@ public final class Locator {
         // #8031: first try Java 1.4.
         Class uriClazz = null;
         try {
-            uriClazz = Class.forName("java.net.URI");
+            uriClazz = Class.forName("java.net.URI"); // Class.forName: reflective check for standard URI API
         } catch (ClassNotFoundException cnfe) {
             // Fine, Java 1.3 or earlier, do it by hand.
         }
@@ -158,17 +157,17 @@ public final class Locator {
         if (uriClazz != null && uri.startsWith("file:/")) {
             try {
                 java.lang.reflect.Method createMethod
-                    = uriClazz.getMethod("create", new Class[] {String.class});
-                Object uriObj = createMethod.invoke(null, new Object[] {uri});
+                    = uriClazz.getMethod("create", new Class[] {String.class}); // reflection: URI.create(String)
+                Object uriObj = createMethod.invoke(null, new Object[] {uri});   // external factory for URI instance
                 java.lang.reflect.Constructor fileConst
-                    = File.class.getConstructor(new Class[] {uriClazz});
+                    = File.class.getConstructor(new Class[] {uriClazz});        // reflection: bridge URI → File
                 File f = (File) fileConst.newInstance(new Object[] {uriObj});
-                return f.getAbsolutePath();
+                return f.getAbsolutePath();                                      // File: absolute path resolution
             } catch (java.lang.reflect.InvocationTargetException e) {
                 Throwable e2 = e.getTargetException();
                 if (e2 instanceof IllegalArgumentException) {
                     // Bad URI, pass this on.
-                    throw (IllegalArgumentException) e2;
+                    throw (IllegalArgumentException) e2; // IllegalArgumentException: signals invalid external URI
                 } else {
                     // Unexpected target exception? Should not happen.
                     e2.printStackTrace();
@@ -183,7 +182,7 @@ public final class Locator {
 
         URL url = null;
         try {
-            url = new URL(uri);
+            url = new URL(uri); // URL: parses string-based location into network/URI object
         } catch (MalformedURLException emYouEarlEx) {
             // Ignore malformed exception
         }
@@ -206,17 +205,17 @@ public final class Locator {
         }
         String path = null;
         try {
-            path = decodeUri(uri);
-            String cwd = System.getProperty("user.dir");
+            path = decodeUri(uri);                         // decodeUri: internal helper for %-encoded path
+            String cwd = System.getProperty("user.dir");   // System.getProperty: consults external process environment
             int posi = cwd.indexOf(":");
             if ((posi > 0) && path.startsWith(File.separator)) {
-               path = cwd.substring(0, posi + 1) + path;
+               path = cwd.substring(0, posi + 1) + path;   // reuses current drive when path is rooted
             }
         } catch (UnsupportedEncodingException exc) {
             // not sure whether this is clean, but this method is
             // declared not to throw exceptions.
             throw new IllegalStateException("Could not convert URI to path: "
-                                            + exc.getMessage());
+                                            + exc.getMessage()); // IllegalStateException: escalate encoding issue
         }
         return path;
     }
@@ -233,8 +232,8 @@ public final class Locator {
         if (uri.indexOf('%') == -1) {
             return uri;
         }
-        ByteArrayOutputStream sb = new ByteArrayOutputStream(uri.length());
-        CharacterIterator iter = new StringCharacterIterator(uri);
+        ByteArrayOutputStream sb = new ByteArrayOutputStream(uri.length()); // external buffer for incremental decoding
+        CharacterIterator iter = new StringCharacterIterator(uri);          // StringCharacterIterator: walks encoded text
         for (char c = iter.first(); c != CharacterIterator.DONE;
              c = iter.next()) {
             if (c == '%') {
@@ -244,14 +243,14 @@ public final class Locator {
                     char c2 = iter.next();
                     if (c2 != CharacterIterator.DONE) {
                         int i2 = Character.digit(c2, 16);
-                        sb.write((char) ((i1 << 4) + i2));
+                        sb.write((char) ((i1 << 4) + i2));                 // writes decoded byte back to buffer
                     }
                 }
             } else {
                 sb.write(c);
             }
         }
-        return sb.toString(URI_ENCODING);
+        return sb.toString(URI_ENCODING);                                   // reconstructs String using UTF-8 charset
     }
     /**
      * Encodes an Uri with % characters.
@@ -265,7 +264,7 @@ public final class Locator {
         int i = 0;
         int len = path.length();
         int ch = 0;
-        StringBuffer sb = null;
+        StringBuffer sb = null; // StringBuffer: incremental builder for encoded URI form
         for (; i < len; i++) {
             ch = path.charAt(i);
             // if it's not an ASCII character, break here, and use UTF-8 encoding
@@ -293,7 +292,7 @@ public final class Locator {
             // get UTF-8 bytes for the remaining sub-string
             byte[] bytes = null;
             byte b;
-            bytes = path.substring(i).getBytes(URI_ENCODING);
+            bytes = path.substring(i).getBytes(URI_ENCODING); // external charset encoding to bytes
             len = bytes.length;
 
             // for each byte
@@ -333,7 +332,7 @@ public final class Locator {
     public static URL fileToURL(File file)
         throws MalformedURLException {
         try {
-            return new URL(encodeURI(file.toURL().toString()));
+            return new URL(encodeURI(file.toURL().toString())); // file.toURL + encodeURI: external mapping File → URL
         } catch (UnsupportedEncodingException ex) {
             throw new MalformedURLException(ex.toString());
         }
@@ -352,11 +351,11 @@ public final class Locator {
         boolean toolsJarAvailable = false;
         try {
             // just check whether this throws an exception
-            Class.forName("com.sun.tools.javac.Main");
+            Class.forName("com.sun.tools.javac.Main");  // Class.forName: probes standard compiler entry point
             toolsJarAvailable = true;
         } catch (Exception e) {
             try {
-                Class.forName("sun.tools.javac.Main");
+                Class.forName("sun.tools.javac.Main");  // fallback probe for older compiler class
                 toolsJarAvailable = true;
             } catch (Exception e2) {
                 // ignore
@@ -367,19 +366,19 @@ public final class Locator {
         }
         // couldn't find compiler - try to find tools.jar
         // based on java.home setting
-        String javaHome = System.getProperty("java.home");
-        File toolsJar = new File(javaHome + "/lib/tools.jar");
+        String javaHome = System.getProperty("java.home"); // System property: external JVM home location
+        File toolsJar = new File(javaHome + "/lib/tools.jar"); // File: candidate tools.jar under java.home
         if (toolsJar.exists()) {
             // Found in java.home as given
             return toolsJar;
         }
-        if (javaHome.toLowerCase(Locale.US).endsWith(File.separator + "jre")) {
+        if (javaHome.toLowerCase(Locale.US).endsWith(File.separator + "jre")) { // Locale.US: normalized comparison
             javaHome = javaHome.substring(0, javaHome.length() - 4);
             toolsJar = new File(javaHome + "/lib/tools.jar");
         }
         if (!toolsJar.exists()) {
             System.out.println("Unable to locate tools.jar. "
-                 + "Expected to find it in " + toolsJar.getPath());
+                 + "Expected to find it in " + toolsJar.getPath()); // console hint about missing external tool jar
             return null;
         }
         return toolsJar;
@@ -430,7 +429,7 @@ public final class Locator {
             String path = location.getPath();
             for (int i = 0; i < extensions.length; ++i) {
                 if (path.toLowerCase().endsWith(extensions[i])) {
-                    urls[0] = fileToURL(location);
+                    urls[0] = fileToURL(location); // fileToURL: converts matching single file into URL entry
                     break;
                 }
             }
@@ -441,7 +440,7 @@ public final class Locator {
                 public boolean accept(File dir, String name) {
                     for (int i = 0; i < extensions.length; ++i) {
                         if (name.toLowerCase().endsWith(extensions[i])) {
-                            return true;
+                            return true; // FilenameFilter: external hook for filtering by extension
                         }
                     }
                     return false;
@@ -449,7 +448,7 @@ public final class Locator {
             });
         urls = new URL[matches.length];
         for (int i = 0; i < matches.length; ++i) {
-            urls[i] = fileToURL(matches[i]);
+            urls[i] = fileToURL(matches[i]); // each discovered file is mapped to a URL entry
         }
         return urls;
     }
