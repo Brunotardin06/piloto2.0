@@ -165,17 +165,15 @@ public class ProjectHelper {
      * @exception BuildException if a specified helper class cannot
      * be loaded/instantiated.
      */
-    public static ProjectHelper getProjectHelper()
-        throws BuildException {
-        // Identify the class loader we will be using. Ant may be
-        // in a webapp or embedded in a different app
+    public static ProjectHelper getProjectHelper() throws BuildException {
         ProjectHelper helper = null;
 
-        // First, try the system property
-        String helperClass = System.getProperty(HELPER_PROPERTY); // system property: user-specified helper override
+        // 1) Check if a helper was explicitly configured via system property
+        //    (allows external integrations/containers to plug their own implementation).
+        String helperClass = System.getProperty(HELPER_PROPERTY);
         try {
             if (helperClass != null) {
-                helper = newHelper(helperClass);                  // reflectively create configured helper
+                helper = newHelper(helperClass); // uses reflection + context ClassLoader (see LoaderUtils)
             }
         } catch (SecurityException e) {
             System.out.println("Unable to load ProjectHelper class \""
@@ -183,37 +181,36 @@ public class ProjectHelper {
                 + HELPER_PROPERTY);
         }
 
-        // A JDK1.3 'service' ( like in JAXP ). That will plug a helper
-        // automatically if in CLASSPATH, with the right META-INF/services.
+        // 2) If none configured, try JDK-style service discovery:
+        //    looks for META-INF/services/org.apache.tools.ant.ProjectHelper
+        //    using the context ClassLoader (app/server) and then the system ClassLoader.
         if (helper == null) {
             try {
-                ClassLoader classLoader = LoaderUtils.getContextClassLoader(); // context class loader: container-aware resolution
+                ClassLoader classLoader = LoaderUtils.getContextClassLoader(); // LoaderUtils: centralizes context loader access
                 InputStream is = null;
+
                 if (classLoader != null) {
-                    is = classLoader.getResourceAsStream(SERVICE_ID);          // lookup service descriptor in application classpath
+                    is = classLoader.getResourceAsStream(SERVICE_ID);          // service file in application classpath
                 }
                 if (is == null) {
-                    is = ClassLoader.getSystemResourceAsStream(SERVICE_ID);    // fallback to system class loader resource
+                    is = ClassLoader.getSystemResourceAsStream(SERVICE_ID);    // fallback to JVM/system classpath
                 }
 
                 if (is != null) {
-                    // This code is needed by EBCDIC and other strange systems.
-                    // It's a fix for bugs reported in xerces
+                    // Service file is a simple text file: first line = FQCN of the helper implementation
                     InputStreamReader isr;
                     try {
-                        isr = new InputStreamReader(is, "UTF-8");             // explicitly honor UTF-8 service encoding
+                        isr = new InputStreamReader(is, "UTF-8");             // prefer UTF-8, as usual for service descriptors
                     } catch (java.io.UnsupportedEncodingException e) {
-                        isr = new InputStreamReader(is);                      // platform-default as last resort
+                        isr = new InputStreamReader(is);                      // degrade to platform default if needed
                     }
-                    BufferedReader rd = new BufferedReader(isr);              // buffered reader for single-line service entry
+                    BufferedReader rd = new BufferedReader(isr);              // wrapper for line-oriented reading
 
-                    String helperClassName = rd.readLine();                   // read first implementation class from service file
+                    String helperClassName = rd.readLine();                   // read declared ProjectHelper implementation
                     rd.close();
 
-                    if (helperClassName != null
-                        && !"".equals(helperClassName)) {
-
-                        helper = newHelper(helperClassName);                  // instantiate helper discovered via service pattern
+                    if (helperClassName != null && !"".equals(helperClassName)) {
+                        helper = newHelper(helperClassName);                  // instantiate helper discovered via service file
                     }
                 }
             } catch (Exception ex) {
@@ -222,10 +219,11 @@ public class ProjectHelper {
             }
         }
 
+        // 3) If no custom helper was found, fall back to Ant's default XML-based helper.
         if (helper != null) {
             return helper;
         } else {
-            return new ProjectHelper2();                                      // default fallback: built-in XML helper
+            return new ProjectHelper2();                                      // ProjectHelper2: standard Ant build.xml parser
         }
     }
 
