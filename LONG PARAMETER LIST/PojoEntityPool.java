@@ -18,21 +18,21 @@
 
 package org.terasology.engine.entitySystem.entity.internal;
 
-import java.util.Collections;
-import java.util.Map;
-import java.util.Optional;
+import java.util.Collections;                 // Collections: utility methods for unmodifiable views and helpers on collections
+import java.util.Map;                        // Map: core mapping from entity id (Long) to BaseEntityRef
+import java.util.Optional;                   // Optional: explicit “present/absent” result for remove operations
 
-import com.google.common.collect.MapMaker;
-import org.joml.Quaternionfc;
-import org.joml.Vector3fc;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.terasology.engine.entitySystem.component.Component;
-import org.terasology.engine.entitySystem.entity.EntityBuilder;
-import org.terasology.engine.entitySystem.entity.EntityRef;
-import org.terasology.engine.entitySystem.event.EventSystem;
-import org.terasology.engine.entitySystem.prefab.Prefab;
-import org.terasology.engine.logic.location.LocationComponent;
+import com.google.common.collect.MapMaker;   // MapMaker (Guava): builds concurrent map with weak values for entity references
+import org.joml.Quaternionfc;                // Quaternionfc (JOML): immutable rotation interface for world transforms
+import org.joml.Vector3fc;                   // Vector3fc (JOML): immutable 3D vector interface for world positions
+import org.slf4j.Logger;                     // Logger (SLF4J): logging façade used for warnings and diagnostics
+import org.slf4j.LoggerFactory;              // LoggerFactory (SLF4J): factory for obtaining Logger instances
+import org.terasology.engine.entitySystem.component.Component;          // Component: base interface for data components attached to entities
+import org.terasology.engine.entitySystem.entity.EntityBuilder;         // EntityBuilder: builder used to assemble entities and components
+import org.terasology.engine.entitySystem.entity.EntityRef;             // EntityRef: handle/safe reference to an entity id
+import org.terasology.engine.entitySystem.event.EventSystem;            // EventSystem: dispatches lifecycle and gameplay events to systems
+import org.terasology.engine.entitySystem.prefab.Prefab;                // Prefab: predefined template of components for entity creation
+import org.terasology.engine.logic.location.LocationComponent;          // LocationComponent: component holding position/rotation in the world
 
 /**
  * Concrete implementation of {@link EngineEntityPool} backed by plain Java (POJO) data structures.
