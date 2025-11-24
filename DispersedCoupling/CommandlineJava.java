@@ -18,16 +18,16 @@
 
 package org.apache.tools.ant.types;
 
-import org.apache.tools.ant.BuildException;          // BuildException: Ant-specific failure reporting for configuration/runtime errors
-import org.apache.tools.ant.Project;                 // Project: external build model hosting properties, paths and tasks
-import org.apache.tools.ant.util.JavaEnvUtils;       // JavaEnvUtils: helper for resolving JRE executable and active Java version
+import org.apache.tools.ant.BuildException;   // BuildException (Ant): reports configuration/runtime failures to the build
+import org.apache.tools.ant.Project;          // Project (Ant): build context used when creating Path and resolving properties
+import org.apache.tools.ant.util.JavaEnvUtils; // JavaEnvUtils (Ant): resolves current JRE executable and Java version
 
-import java.util.Enumeration;                        // Enumeration: legacy iterator used by Properties, Vector, etc.
-import java.util.LinkedList;                         // LinkedList: ordered list to accumulate VM arguments
-import java.util.List;                               // List: abstraction for argument collections
-import java.util.ListIterator;                       // ListIterator: mutable cursor used for incremental command construction
-import java.util.Properties;                         // Properties: key/value configuration for JVM system properties
-import java.util.Vector;                             // Vector: synchronized collection used by Environment for variables
+import java.util.LinkedList;                  // LinkedList (JDK): backing list that stores the assembled command segments
+import java.util.List;                        // List (JDK): abstraction for the full JVM + program command
+import java.util.ListIterator;                // ListIterator (JDK): cursor used while incrementally appending arguments
+import java.util.Properties;                  // Properties (JDK): concrete storage for System properties / key-value pairs
+import java.util.Vector;                      // Vector (JDK): collection used by Environment/SysProperties to hold variables
+import java.util.Enumeration;                 // Enumeration (JDK): legacy iteration API used by Properties and Vector
 
 /**
  * A representation of a Java command line that is
@@ -41,33 +41,33 @@ public class CommandlineJava implements Cloneable {
     /**
      * commands to the JVM
      */
-    private Commandline vmCommand = new Commandline();       // vmCommand: holds executable and low-level JVM flags
+    private Commandline vmCommand = new Commandline();   // Commandline (Ant): builds JVM launcher + VM-level flags
 
     /**
      * actual java commands
      */
-    private Commandline javaCommand = new Commandline();     // javaCommand: holds main class/jar and program arguments
+    private Commandline javaCommand = new Commandline(); // Commandline (Ant): builds main class/jar + program arguments
 
     /**
      * properties to add using -D
      */
-    private SysProperties sysProperties = new SysProperties(); // SysProperties: wrapper around System properties passed as -D
+    private SysProperties sysProperties = new SysProperties(); // SysProperties (inner): wraps Environment/PropertySet into -D options
 
-    private Path classpath = null;                           // Path: Ant path abstraction for classpath
-    private Path bootclasspath = null;                       // Path: separate boot classpath, applied with -Xbootclasspath
+    private Path classpath = null;                       // Path (Ant): represents the application classpath for this command
+    private Path bootclasspath = null;                   // Path (Ant): represents the low-level VM boot classpath
     private String vmVersion;
     private String maxMemory = null;
 
     /**
      *  any assertions to make? Currently only supported in forked JVMs
      */
-    private Assertions assertions = null;                    // Assertions: external description of -ea/-da switches
+    private Assertions assertions = null;                // Assertions (Ant): describes which -ea/-da assertion switches to apply
 
     /**
      * Indicate whether it will execute a jar file or not, in this case
      * the first vm option must be a -jar and the 'executable' is a jar file.
      */
-     private boolean executeJar = false;
+    private boolean executeJar = false;
 
     /**
      * Whether system properties and bootclasspath shall be cloned.
@@ -81,9 +81,9 @@ public class CommandlineJava implements Cloneable {
     public static class SysProperties extends Environment implements Cloneable {
         // CheckStyle:VisibilityModifier OFF - bc
         /** the system properties. */
-        Properties sys = null;                              // sys: cached snapshot of process-wide System properties
+        Properties sys = null;                          // Properties (JDK): cached snapshot of JVM-wide System properties
         // CheckStyle:VisibilityModifier ON
-        private Vector propertySets = new Vector();          // propertySets: grouped external property definitions to merge
+        private Vector propertySets = new Vector();     // Vector (JDK): holds PropertySet instances to be merged into Properties
 
         /**
          * Get the properties as an array; this is an override of the
@@ -93,9 +93,9 @@ public class CommandlineJava implements Cloneable {
          */
         public String[] getVariables() throws BuildException {
 
-            List definitions = new LinkedList();             // definitions: merged "-Dkey=value" style entries
+            List definitions = new LinkedList();         // List (JDK): collects all "-Dkey=value" style definitions
             ListIterator list = definitions.listIterator();
-            addDefinitionsToList(list);
+            addDefinitionsToList(list);                 // SysProperties.addDefinitionsToList(...) expands Environment + PropertySet
             if (definitions.size() == 0) {
                 return null;
             } else {
@@ -108,18 +108,18 @@ public class CommandlineJava implements Cloneable {
          * @param listIt list iterator supporting add method.
          */
         public void addDefinitionsToList(ListIterator listIt) {
-            String[] props = super.getVariables();           // Environment.getVariables(): existing key=value variables
+            String[] props = super.getVariables();      // Environment.getVariables(): returns "key=value" pairs for variables
             if (props != null) {
                 for (int i = 0; i < props.length; i++) {
-                    listIt.add("-D" + props[i]);             // encode Environment variables as JVM -D arguments
+                    listIt.add("-D" + props[i]);        // converts each Environment variable into a JVM -D argument
                 }
             }
-            Properties propertySetProperties = mergePropertySets(); // merge PropertySet-provided external properties
+            Properties propertySetProperties = mergePropertySets(); // merges all PropertySet-backed properties into one Properties
             for (Enumeration e = propertySetProperties.keys();
                  e.hasMoreElements();) {
                 String key = (String) e.nextElement();
                 String value = propertySetProperties.getProperty(key);
-                listIt.add("-D" + key + "=" + value);        // attach each external property as dedicated -D flag
+                listIt.add("-D" + key + "=" + value);   // each PropertySet entry becomes its own "-Dkey=value" on the command line
             }
         }
 
@@ -129,7 +129,7 @@ public class CommandlineJava implements Cloneable {
          * @return the size of the sysproperties instance.
          */
         public int size() {
-            Properties p = mergePropertySets();              // compute effective set by aggregating all PropertySet entries
+            Properties p = mergePropertySets();         // merge PropertySet data before counting effective entries
             return variables.size() + p.size();
         }
 
@@ -140,19 +140,19 @@ public class CommandlineJava implements Cloneable {
          */
         public void setSystem() throws BuildException {
             try {
-                sys = System.getProperties();                // snapshot current System properties, for later restoration
+                sys = System.getProperties();           // System.getProperties(): captures current process-wide properties
                 Properties p = new Properties();
                 for (Enumeration e = sys.propertyNames(); e.hasMoreElements();) {
                     String name = (String) e.nextElement();
-                    p.put(name, sys.getProperty(name));      // copy each existing JVM property into a new backing store
+                    p.put(name, sys.getProperty(name)); // copies each existing property into the new backing Properties
                 }
-                p.putAll(mergePropertySets());               // merge in external PropertySet-based configuration
+                p.putAll(mergePropertySets());          // overlays properties coming from all configured PropertySet instances
                 for (Enumeration e = variables.elements(); e.hasMoreElements();) {
-                    Environment.Variable v = (Environment.Variable) e.nextElement();
-                    v.validate();                            // external sanity check for provided variable mapping
-                    p.put(v.getKey(), v.getValue());         // overlay explicit Environment.Variable entries
+                    Environment.Variable v = (Environment.Variable) e.nextElement(); // Environment.Variable (Ant): single key/value
+                    v.validate();                       // Environment.Variable.validate(): checks the mapping before use
+                    p.put(v.getKey(), v.getValue());    // explicit Environment variables override previous values in p
                 }
-                System.setProperties(p);                     // apply new properties globally to this JVM process
+                System.setProperties(p);                // System.setProperties(): installs new Properties for the whole JVM
             } catch (SecurityException e) {
                 throw new BuildException("Cannot modify system properties", e);
             }
@@ -169,8 +169,8 @@ public class CommandlineJava implements Cloneable {
             }
 
             try {
-                System.setProperties(sys);                   // restore original System properties back into JVM
-                sys = null;                                  // mark snapshot as consumed
+                System.setProperties(sys);              // System.setProperties(): restores original snapshot captured in setSystem()
+                sys = null;                             // null marks that there is no longer a cached snapshot to restore
             } catch (SecurityException e) {
                 throw new BuildException("Cannot modify system properties", e);
             }
@@ -184,8 +184,8 @@ public class CommandlineJava implements Cloneable {
         public Object clone() throws CloneNotSupportedException {
             try {
                 SysProperties c = (SysProperties) super.clone();
-                c.variables = (Vector) variables.clone();    // cloned view of Environment variables
-                c.propertySets = (Vector) propertySets.clone(); // cloned collection of external property sets
+                c.variables = (Vector) variables.clone();      // Vector.clone(): copies Environment.Variable entries
+                c.propertySets = (Vector) propertySets.clone(); // Vector.clone(): copies PropertySet references
                 return c;
             } catch (CloneNotSupportedException e) {
                 return null;
@@ -197,7 +197,7 @@ public class CommandlineJava implements Cloneable {
          * @param ps the new property set.
          */
         public void addSyspropertyset(PropertySet ps) {
-            propertySets.addElement(ps);                     // register PropertySet that contributes external properties
+            propertySets.addElement(ps);                // PropertySet (Ant): contributes a dynamic subset of Project properties
         }
 
         /**
@@ -206,8 +206,8 @@ public class CommandlineJava implements Cloneable {
          * @since Ant 1.6.3
          */
         public void addSysproperties(SysProperties ps) {
-            variables.addAll(ps.variables);                  // aggregate Environment-style variables from peer instance
-            propertySets.addAll(ps.propertySets);            // aggregate PropertySet groups from peer instance
+            variables.addAll(ps.variables);             // merges Environment-style variables from another SysProperties instance
+            propertySets.addAll(ps.propertySets);       // merges PropertySet sources from another SysProperties instance
         }
 
         /**
@@ -218,8 +218,8 @@ public class CommandlineJava implements Cloneable {
             Properties p = new Properties();
             for (Enumeration e = propertySets.elements();
                  e.hasMoreElements();) {
-                PropertySet ps = (PropertySet) e.nextElement(); // PropertySet: deferred lookup of project-scoped properties
-                p.putAll(ps.getProperties());                // merge resolved set into consolidated Properties view
+                PropertySet ps = (PropertySet) e.nextElement(); // PropertySet (Ant): resolves to a Properties view at runtime
+                p.putAll(ps.getProperties());              // merges each PropertySet's Properties into the consolidated result
             }
             return p;
         }
@@ -230,8 +230,8 @@ public class CommandlineJava implements Cloneable {
      * Constructor uses the VM we are running on now.
      */
     public CommandlineJava() {
-        setVm(JavaEnvUtils.getJreExecutable("java"));        // query JavaEnvUtils for current "java" executable path
-        setVmversion(JavaEnvUtils.getJavaVersion());         // store active VM version as reported by runtime environment
+        setVm(JavaEnvUtils.getJreExecutable("java"));    // JavaEnvUtils.getJreExecutable(...): picks the 'java' binary for this JRE
+        setVmversion(JavaEnvUtils.getJavaVersion());     // JavaEnvUtils.getJavaVersion(): records current VM version string
     }
 
     /**
@@ -239,7 +239,7 @@ public class CommandlineJava implements Cloneable {
      * @return an argument to be configured.
      */
     public Commandline.Argument createArgument() {
-        return javaCommand.createArgument();                 // delegate program argument creation to javaCommand wrapper
+        return javaCommand.createArgument();             // Commandline.createArgument(): adds one program-level argument slot
     }
 
     /**
@@ -247,7 +247,7 @@ public class CommandlineJava implements Cloneable {
      * @return an argument to be configured.
      */
     public Commandline.Argument createVmArgument() {
-        return vmCommand.createArgument();                   // delegate VM argument creation (-X, -D etc.) to vmCommand
+        return vmCommand.createArgument();               // Commandline.createArgument(): adds one VM-level argument slot (-X, -D, etc.)
     }
 
     /**
@@ -255,7 +255,7 @@ public class CommandlineJava implements Cloneable {
      * @param sysp a property to be set in the JVM.
      */
     public void addSysproperty(Environment.Variable sysp) {
-        sysProperties.addVariable(sysp);                     // treat Environment.Variable as one more -D entry
+        sysProperties.addVariable(sysp);                 // Environment.addVariable(): registers one Environment.Variable to be exported
     }
 
     /**
@@ -263,7 +263,7 @@ public class CommandlineJava implements Cloneable {
      * @param sysp a set of properties.
      */
     public void addSyspropertyset(PropertySet sysp) {
-        sysProperties.addSyspropertyset(sysp);               // capture PropertySet block for later merge into -D list
+        sysProperties.addSyspropertyset(sysp);           // SysProperties.addSyspropertyset(): includes one more PropertySet source
     }
 
     /**
@@ -272,7 +272,7 @@ public class CommandlineJava implements Cloneable {
      * @since Ant 1.6.3
      */
     public void addSysproperties(SysProperties sysp) {
-        sysProperties.addSysproperties(sysp);                // merge externally prepared SysProperties instance
+        sysProperties.addSysproperties(sysp);            // SysProperties.addSysproperties(): merges another SysProperties configuration
     }
 
     /**
@@ -280,7 +280,7 @@ public class CommandlineJava implements Cloneable {
      * @param vm the executable to use.
      */
     public void setVm(String vm) {
-        vmCommand.setExecutable(vm);                         // configure VM executable (e.g. "java" or custom wrapper)
+        vmCommand.setExecutable(vm);                     // Commandline.setExecutable(): defines which JVM launcher binary to invoke
     }
 
     /**
@@ -288,7 +288,7 @@ public class CommandlineJava implements Cloneable {
      * @param value the version required.
      */
     public void setVmversion(String value) {
-        vmVersion = value;                                   // hint for version-sensitive options (e.g., -mx vs -Xmx)
+        vmVersion = value;                               // stored VM version string used by getActualVMCommand() to choose flags
     }
 
     /**
@@ -299,7 +299,7 @@ public class CommandlineJava implements Cloneable {
      * @since Ant 1.7
      */
     public void setCloneVm(boolean cloneVm) {
-        this.cloneVm = cloneVm;                              // toggle behavior to reuse caller JVM configuration baseline
+        this.cloneVm = cloneVm;                          // flag used by isCloneVm() and calculateBootclasspath(...) to decide behavior
     }
 
     /**
@@ -315,7 +315,7 @@ public class CommandlineJava implements Cloneable {
      * @param assertions assertions to make.
      */
     public void setAssertions(Assertions assertions) {
-        this.assertions = assertions;                        // attach externally built assertion configuration object
+        this.assertions = assertions;                    // stores Assertions (Ant) configuration to be applied later in addCommandsToList
     }
 
     /**
@@ -323,8 +323,8 @@ public class CommandlineJava implements Cloneable {
      * @param jarpathname the pathname of the jar to execute.
      */
     public void setJar(String jarpathname) {
-        javaCommand.setExecutable(jarpathname);              // treat jar file as "executable" entity for -jar launches
-        executeJar = true;
+        javaCommand.setExecutable(jarpathname);          // Commandline.setExecutable(): now points to the JAR that will be run
+        executeJar = true;                               // flag tells addCommandsToList(...) to prepend "-jar" before javaCommand
     }
 
     /**
@@ -335,7 +335,7 @@ public class CommandlineJava implements Cloneable {
      */
     public String getJar() {
         if (executeJar) {
-            return javaCommand.getExecutable();              // reuse javaCommand executable slot as jar path when -jar is set
+            return javaCommand.getExecutable();          // returns the JAR path previously stored in javaCommand.setExecutable(...)
         }
         return null;
     }
@@ -345,8 +345,8 @@ public class CommandlineJava implements Cloneable {
      * @param classname the fully qualified classname.
      */
     public void setClassname(String classname) {
-        javaCommand.setExecutable(classname);                // switch execution mode back to main class invocation
-        executeJar = false;
+        javaCommand.setExecutable(classname);            // Commandline.setExecutable(): now points to the main class instead of a JAR
+        executeJar = false;                              // disables -jar mode so class name is used directly
     }
 
     /**
@@ -356,7 +356,7 @@ public class CommandlineJava implements Cloneable {
      */
     public String getClassname() {
         if (!executeJar) {
-            return javaCommand.getExecutable();              // return fully-qualified main class when in class mode
+            return javaCommand.getExecutable();          // returns fully qualified main class configured in setClassname(...)
         }
         return null;
     }
@@ -368,7 +368,7 @@ public class CommandlineJava implements Cloneable {
      */
     public Path createClasspath(Project p) {
         if (classpath == null) {
-            classpath = new Path(p);                         // Path constructed with Project context for property expansion
+            classpath = new Path(p);                     // Path(Path.Project): uses Project context to resolve property-based entries
         }
         return classpath;
     }
@@ -381,7 +381,7 @@ public class CommandlineJava implements Cloneable {
      */
     public Path createBootclasspath(Project p) {
         if (bootclasspath == null) {
-            bootclasspath = new Path(p);                     // separate Path dedicated to low-level bootstrap classes
+            bootclasspath = new Path(p);                 // Path(Path.Project): dedicated to VM boot classpath configuration
         }
         return bootclasspath;
     }
@@ -400,10 +400,10 @@ public class CommandlineJava implements Cloneable {
      */
     public String[] getCommandline() {
         //create the list
-        List commands = new LinkedList();                    // commands: ordered representation of the full Java invocation
+        List commands = new LinkedList();                // LinkedList (JDK): holds every token of the final "java ..." command
         final ListIterator listIterator = commands.listIterator();
         //fill it
-        addCommandsToList(listIterator);                     // let internal builder append VM + program arguments
+        addCommandsToList(listIterator);                 // CommandlineJava.addCommandsToList(...): orchestrates all collaborators
         //convert to an array
         return (String[]) commands.toArray(new String[commands.size()]);
     }
@@ -414,39 +414,39 @@ public class CommandlineJava implements Cloneable {
      * @since Ant 1.6
      */
     private void addCommandsToList(final ListIterator listIterator) {
-        //create the command to run Java, including user specified options
-        getActualVMCommand().addCommandToList(listIterator); // start with configured VM executable and flags
+        // create the command to run Java, including user specified options
+        getActualVMCommand().addCommandToList(listIterator); // Commandline.addCommandToList(vmCommand): adds JVM executable + VM options
 
         // properties are part of the vm options...
-        sysProperties.addDefinitionsToList(listIterator);    // then append every -D property configuration
+        sysProperties.addDefinitionsToList(listIterator);    // SysProperties.addDefinitionsToList(...): expands Environment/PropertySet into -D flags
 
         if (isCloneVm()) {
-            SysProperties clonedSysProperties = new SysProperties();
-            PropertySet ps = new PropertySet();              // PropertySet: special view over live System properties
+            SysProperties clonedSysProperties = new SysProperties(); // SysProperties: new container for cloned System properties
+            PropertySet ps = new PropertySet();              // PropertySet (Ant): describes which Project properties to expose
             PropertySet.BuiltinPropertySetName sys =
-                new PropertySet.BuiltinPropertySetName();
-            sys.setValue("system");                          // instruct PropertySet to mirror full system property set
-            ps.appendBuiltin(sys);
-            clonedSysProperties.addSyspropertyset(ps);       // stage System properties as explicit -D flags
-            clonedSysProperties.addDefinitionsToList(listIterator);
+                new PropertySet.BuiltinPropertySetName();    // BuiltinPropertySetName (Ant): selects a predefined property group
+            sys.setValue("system");                          // "system": instructs PropertySet to pull from current System properties
+            ps.appendBuiltin(sys);                           // PropertySet.appendBuiltin(...): attaches the "system" source
+            clonedSysProperties.addSyspropertyset(ps);       // SysProperties.addSyspropertyset(...): includes that PropertySet
+            clonedSysProperties.addDefinitionsToList(listIterator); // expands those System properties into additional "-D..." entries
         }
 
-        //boot classpath
-        Path bcp = calculateBootclasspath(true);             // derive effective boot classpath, honoring cloneVm and flags
+        // boot classpath
+        Path bcp = calculateBootclasspath(true);             // Path returned by calculateBootclasspath(...): effective boot classpath
         if (bcp.size() > 0) {
-            listIterator.add("-Xbootclasspath:" + bcp.toString());
+            listIterator.add("-Xbootclasspath:" + bcp.toString()); // adds JVM boot classpath option built by Path.concatSystemBootClasspath(...)
         }
 
-        //main classpath
+        // main classpath
         if (haveClasspath()) {
             listIterator.add("-classpath");
             listIterator.add(
-                    classpath.concatSystemClasspath("ignore").toString()); // combine custom path with current runtime classpath
+                    classpath.concatSystemClasspath("ignore").toString()); // Path.concatSystemClasspath(...): merges custom + system classpath
         }
 
-        //now any assertions are added
+        // now any assertions are added
         if (getAssertions() != null) {
-            getAssertions().applyAssertions(listIterator);   // map assertion configuration to appropriate -ea/-da switches
+            getAssertions().applyAssertions(listIterator);   // Assertions.applyAssertions(...): contributes -ea/-da flags to the command
         }
 
         // JDK usage command line says that -jar must be the first option, as there is
@@ -454,12 +454,12 @@ public class CommandlineJava implements Cloneable {
         // option, it is appended here as specified in the docs even though there is
         // in fact no order.
         if (executeJar) {
-            listIterator.add("-jar");                        // toggle execution mode from main class to jar entry point
+            listIterator.add("-jar");                        // literal "-jar": switches JVM into JAR-execution mode
         }
 
         // this is the classname to run as well as its arguments.
         // in case of 'executeJar', the executable is a jar file.
-        javaCommand.addCommandToList(listIterator);          // finally append target main (class or jar) and its parameters
+        javaCommand.addCommandToList(listIterator);          // Commandline.addCommandToList(javaCommand): adds main class/JAR + program args
     }
 
     /**
@@ -468,7 +468,7 @@ public class CommandlineJava implements Cloneable {
      * @param max the string to pass to the jvm to specifiy the max memory.
      */
     public void setMaxmemory(String max) {
-        this.maxMemory = max;                                // raw numeric suffix, e.g. "512m" or "2g"
+        this.maxMemory = max;                                // stored as raw suffix (e.g. "512m") and translated to -mx/-Xmx later
     }
 
     /**
@@ -476,7 +476,7 @@ public class CommandlineJava implements Cloneable {
      * @return the command line as a string.
      */
     public String toString() {
-        return Commandline.toString(getCommandline());       // reuse Commandline utility to render full invocation as text
+        return Commandline.toString(getCommandline());       // Commandline.toString(...): renders full command as a single String
     }
 
     /**
@@ -486,7 +486,7 @@ public class CommandlineJava implements Cloneable {
      * @since Ant 1.5
      */
     public String describeCommand() {
-        return Commandline.describeCommand(getCommandline()); // human-readable representation for logging/debugging
+        return Commandline.describeCommand(getCommandline()); // Commandline.describeCommand(...): produces a human-readable description
     }
 
     /**
@@ -498,7 +498,7 @@ public class CommandlineJava implements Cloneable {
      * @since Ant 1.5
      */
     public String describeJavaCommand() {
-        return Commandline.describeCommand(getJavaCommand()); // only main-class side of the command, used for in-VM runs
+        return Commandline.describeCommand(getJavaCommand()); // focuses only on javaCommand (main class/JAR + args) for in-VM runs
     }
 
     /**
@@ -506,12 +506,12 @@ public class CommandlineJava implements Cloneable {
      * @return the VM command parameters.
      */
     protected Commandline getActualVMCommand() {
-        Commandline actualVMCommand = (Commandline) vmCommand.clone(); // defensive clone: base VM flags remain reusable
+        Commandline actualVMCommand = (Commandline) vmCommand.clone(); // Commandline.clone(): copies current VM executable + flags
         if (maxMemory != null) {
             if (vmVersion.startsWith("1.1")) {
-                actualVMCommand.createArgument().setValue("-mx" + maxMemory);   // legacy memory flag for old VMs
+                actualVMCommand.createArgument().setValue("-mx" + maxMemory);   // old VMs: uses -mx for max heap size
             } else {
-                actualVMCommand.createArgument().setValue("-Xmx" + maxMemory);  // standard -Xmx for modern JVMs
+                actualVMCommand.createArgument().setValue("-Xmx" + maxMemory);  // newer VMs: uses -Xmx for max heap size
             }
         }
         return actualVMCommand;
@@ -531,7 +531,7 @@ public class CommandlineJava implements Cloneable {
             + sysProperties.size();
         // cloned system properties
         if (isCloneVm()) {
-            size += System.getProperties().size();           // System.getProperties(): count of implicit -D when cloning VM
+            size += System.getProperties().size();           // System.getProperties().size(): counts extra -D entries when cloning VM
         }
         // classpath is "-classpath <classpath>" -> 2 args
         if (haveClasspath()) {
@@ -545,9 +545,9 @@ public class CommandlineJava implements Cloneable {
         if (executeJar) {
             size++;
         }
-        //assertions take up space too
+        // assertions take up space too
         if (getAssertions() != null) {
-            size += getAssertions().size();
+            size += getAssertions().size();                  // Assertions.size(): returns number of tokens it will add to the command
         }
         return size;
     }
@@ -590,7 +590,7 @@ public class CommandlineJava implements Cloneable {
      * @throws BuildException  if Security prevented this operation.
      */
     public void setSystemProperties() throws BuildException {
-        sysProperties.setSystem();                           // delegate global System property update to SysProperties
+        sysProperties.setSystem();                           // SysProperties.setSystem(): swaps global System properties for this JVM
     }
 
     /**
@@ -599,7 +599,7 @@ public class CommandlineJava implements Cloneable {
      * there was no system properties to restore
      */
     public void restoreSystemProperties() throws BuildException {
-        sysProperties.restoreSystem();                       // restore previous global System property snapshot
+        sysProperties.restoreSystem();                       // SysProperties.restoreSystem(): restores previously cached System properties
     }
 
     /**
@@ -619,17 +619,17 @@ public class CommandlineJava implements Cloneable {
     public Object clone() throws CloneNotSupportedException {
         try {
             CommandlineJava c = (CommandlineJava) super.clone();
-            c.vmCommand = (Commandline) vmCommand.clone();          // independent copy of VM-side arguments
-            c.javaCommand = (Commandline) javaCommand.clone();      // independent copy of application-side arguments
-            c.sysProperties = (SysProperties) sysProperties.clone(); // cloned SysProperties with its own variable lists
+            c.vmCommand = (Commandline) vmCommand.clone();          // Commandline.clone(): independent copy of VM-side configuration
+            c.javaCommand = (Commandline) javaCommand.clone();      // Commandline.clone(): independent copy of program-side configuration
+            c.sysProperties = (SysProperties) sysProperties.clone(); // SysProperties.clone(): copies environment variables and property sets
             if (classpath != null) {
-                c.classpath = (Path) classpath.clone();             // copy Path so further mutations are isolated
+                c.classpath = (Path) classpath.clone();             // Path.clone(): new Path with same entries for classpath
             }
             if (bootclasspath != null) {
-                c.bootclasspath = (Path) bootclasspath.clone();
+                c.bootclasspath = (Path) bootclasspath.clone();     // Path.clone(): new Path with same entries for bootclasspath
             }
             if (assertions != null) {
-                c.assertions = (Assertions) assertions.clone();     // assertions: duplicated configuration for cloned instance
+                c.assertions = (Assertions) assertions.clone();     // Assertions.clone(): copies assertion rules for the new instance
             }
             return c;
         } catch (CloneNotSupportedException e) {
@@ -641,7 +641,7 @@ public class CommandlineJava implements Cloneable {
      * Clear out the java arguments.
      */
     public void clearJavaArgs() {
-        javaCommand.clearArgs();                             // reset only program arguments while leaving VM config intact
+        javaCommand.clearArgs();                             // Commandline.clearArgs(): removes only program arguments, not executable
     }
 
     /**
@@ -652,7 +652,7 @@ public class CommandlineJava implements Cloneable {
      */
     protected boolean haveClasspath() {
         Path fullClasspath = classpath != null
-            ? classpath.concatSystemClasspath("ignore") : null; // combine declared path with system classpath if requested
+            ? classpath.concatSystemClasspath("ignore") : null; // Path.concatSystemClasspath(...): optionally merges system classpath
         return fullClasspath != null
             && fullClasspath.toString().trim().length() > 0;
     }
@@ -668,7 +668,7 @@ public class CommandlineJava implements Cloneable {
      * @since Ant 1.6
      */
     protected boolean haveBootclasspath(boolean log) {
-        return calculateBootclasspath(log).size() > 0;       // delegate to calculateBootclasspath to honor VM/version rules
+        return calculateBootclasspath(log).size() > 0;       // delegates to calculateBootclasspath(...) to apply VM/version rules
     }
 
     /**
@@ -682,18 +682,18 @@ public class CommandlineJava implements Cloneable {
         if (vmVersion.startsWith("1.1")) {
             if (bootclasspath != null && log) {
                 bootclasspath.log("Ignoring bootclasspath as "
-                                  + "the target VM doesn't support it."); // annotate ignored setting through Path logging
+                                  + "the target VM doesn't support it."); // Path.log(...): emits warning that bootclasspath will be ignored
             }
         } else {
             if (bootclasspath != null) {
                 return bootclasspath.concatSystemBootClasspath(isCloneVm()
                                                                ? "last"
-                                                               : "ignore"); // optionally append system boot classpath at the end
+                                                               : "ignore"); // Path.concatSystemBootClasspath(...): merges with system boot classpath
             } else if (isCloneVm()) {
-                return Path.systemBootClasspath;             // reuse global system boot classpath when cloning VM
+                return Path.systemBootClasspath;             // Path.systemBootClasspath (Ant): shared static representing system boot classpath
             }
         }
-        return new Path(null);                               // empty Path: caller sees size() == 0
+        return new Path(null);                               // returns an empty Path instance when no boot classpath will be used
     }
 
     /**
@@ -704,6 +704,6 @@ public class CommandlineJava implements Cloneable {
      */
     private boolean isCloneVm() {
         return cloneVm
-            || "true".equals(System.getProperty("ant.build.clonevm")); // System.getProperty: external toggle for clone behavior
+            || "true".equals(System.getProperty("ant.build.clonevm")); // System.getProperty(...): external toggle to clone VM settings
     }
 }
