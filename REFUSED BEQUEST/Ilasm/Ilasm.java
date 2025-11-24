@@ -24,14 +24,14 @@
 package org.apache.tools.ant.taskdefs.optional.dotnet;
 
 
-import java.io.File;
-import java.util.Vector;
+import java.io.File;         // File: represents input/output paths and key/resource files
+import java.util.Vector;    // Vector: holds reference FileSets used during compilation
 
-import org.apache.tools.ant.BuildException;
-import org.apache.tools.ant.Project;
-import org.apache.tools.ant.taskdefs.condition.Os;
-import org.apache.tools.ant.types.EnumeratedAttribute;
-import org.apache.tools.ant.types.FileSet;
+import org.apache.tools.ant.BuildException;              // BuildException: signals Ant configuration/execution failures
+import org.apache.tools.ant.Project;                     // Project: Ant project context used for logging and configuration
+import org.apache.tools.ant.taskdefs.condition.Os;       // Os: utility to detect the current operating system (Windows/Mono)
+import org.apache.tools.ant.types.EnumeratedAttribute;   // EnumeratedAttribute: base for attribute types with fixed string values
+import org.apache.tools.ant.types.FileSet;               // FileSet: logical group of files (e.g., reference assemblies)
 
 /**
  * Assembles .NET Intermediate Language files.
@@ -537,4 +537,3 @@ public class Ilasm
     }
 
 }
-
