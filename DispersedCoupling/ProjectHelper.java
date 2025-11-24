@@ -25,39 +25,30 @@ import java.io.InputStreamReader;       // InputStreamReader: charset-aware wrap
 import java.util.Hashtable;             // Hashtable: legacy map for project properties
 import java.util.Locale;                // Locale: normalized case-insensitive comparisons
 import java.util.Vector;                // Vector: legacy list used in parsing helpers
+
 import org.apache.tools.ant.helper.ProjectHelper2; // ProjectHelper2: default concrete XML parser for Ant projects
 import org.apache.tools.ant.util.LoaderUtils;      // LoaderUtils: helper for resolving context class loaders
 import org.xml.sax.AttributeList;       // AttributeList: external SAX representation of XML attributes
 
 /**
  * Configures a Project (complete with Targets and Tasks) based on
- * a XML build file. It'll rely on a plugin to do the actual processing
- * of the xml file.
+ * an XML build file. It relies on a pluggable helper to do the actual
+ * processing of the XML file.
  *
- * This class also provide static wrappers for common introspection.
- *
- * All helper plugins must provide backward compatibility with the
- * original ant patterns, unless a different behavior is explicitly
- * specified. For example, if namespace is used on the &lt;project&gt; tag
- * the helper can expect the entire build file to be namespace-enabled.
- * Namespaces or helper-specific tags can provide meta-information to
- * the helper, allowing it to use new ( or different policies ).
- *
- * However, if no namespace is used the behavior should be exactly
- * identical with the default helper.
- *
+ * This class also provides static helpers for common introspection and
+ * configuration patterns used by Ant's XML parsing layer.
  */
 public class ProjectHelper {
-    /** The URI for ant name space */
+    /** The URI for Ant core namespace. */
     public static final String ANT_CORE_URI    = "antlib:org.apache.tools.ant";
 
-    /** The URI for antlib current definitions */
-    public static final String ANT_CURRENT_URI      = "ant:current";
+    /** The URI for antlib current definitions. */
+    public static final String ANT_CURRENT_URI = "ant:current";
 
-    /** The URI for defined types/tasks - the format is antlib:<package> */
-    public static final String ANTLIB_URI     = "antlib:";
+    /** The URI prefix for defined types/tasks - format is antlib:&lt;package&gt;. */
+    public static final String ANTLIB_URI      = "antlib:";
 
-    /** Polymorphic attribute  */
+    /** Polymorphic attribute name used to disambiguate component type. */
     public static final String ANT_TYPE = "ant-type";
 
     /**
@@ -68,16 +59,24 @@ public class ProjectHelper {
         "org.apache.tools.ant.ProjectHelper";
 
     /**
-     * The service identifier in jars which provide Project Helper
+     * The service identifier in jars which provide ProjectHelper
      * implementations.
      */
     public static final String SERVICE_ID =
         "META-INF/services/org.apache.tools.ant.ProjectHelper";
 
     /**
-     * name of project helper reference that we add to a project
+     * Name of ProjectHelper reference that will be added to a Project
+     * once the helper has been chosen.
      */
     public static final String PROJECTHELPER_REFERENCE = "ant.projectHelper";
+
+    /**
+     * Stack of import/include sources used during parsing.
+     * Used to keep track of imported files so that error reporting
+     * can display the import path.
+     */
+    private Vector importStack = new Vector(); // importStack: tracks nested includes/imports for error tracing
 
     /**
      * Configures the project with the contents of the specified XML file.
@@ -96,35 +95,13 @@ public class ProjectHelper {
         helper.parse(project, buildFile);                        // delegate XML parsing and configuration to helper
     }
 
-    /** Default constructor */
     public ProjectHelper() {
     }
 
-    // -------------------- Common properties  --------------------
-    // The following properties are required by import ( and other tasks
-    // that read build files using ProjectHelper ).
-
-    // A project helper may process multiple files. We'll keep track
-    // of them - to avoid loops and to allow caching. The caching will
-    // probably accelerate things like <antCall>.
-    // The key is the absolute file, the value is a processed tree.
-    // Since the tree is composed of UE and RC - it can be reused !
-    // protected Hashtable processedFiles=new Hashtable();
-
-    private Vector importStack = new Vector(); // importStack: tracks nested includes/imports for error tracing
-
-    // Temporary - until we figure a better API
-    /** EXPERIMENTAL WILL_CHANGE
-     *
-     */
-//    public Hashtable getProcessedFiles() {
-//        return processedFiles;
-//    }
-
-    /** EXPERIMENTAL WILL_CHANGE
-     *  Import stack.
-     *  Used to keep track of imported files. Error reporting should
-     *  display the import path.
+    /**
+     * Import stack.
+     * Used to keep track of imported files. Error reporting should
+     * display the import path.
      *
      * @return the stack of import source objects.
      */
@@ -132,8 +109,8 @@ public class ProjectHelper {
         return importStack;
     }
 
-
     // --------------------  Parse method  --------------------
+
     /**
      * Parses the project file, configuring the project as it goes.
      *
@@ -141,9 +118,9 @@ public class ProjectHelper {
      *                Must not be <code>null</code>.
      * @param source The source for XML configuration. A helper must support
      *               at least File, for backward compatibility. Helpers may
-     *               support URL, InputStream, etc or specialized types.
+     *               support URL, InputStream, etc. or specialized types.
      *
-     * @since Ant1.5
+     * @since Ant 1.5
      * @exception BuildException if the configuration is invalid or cannot
      *                           be read
      */
@@ -152,11 +129,10 @@ public class ProjectHelper {
             + "in a helper plugin " + this.getClass().getName()); // message hints to concrete plugin implementors
     }
 
-
     /**
      * Discovers a project helper instance. Uses the same patterns
      * as JAXP, commons-logging, etc: a system property, a JDK1.3
-     * service discovery, default.
+     * service discovery, then a default.
      *
      * @return a ProjectHelper, either a custom implementation
      * if one is available and configured, or the default implementation
@@ -168,8 +144,7 @@ public class ProjectHelper {
     public static ProjectHelper getProjectHelper() throws BuildException {
         ProjectHelper helper = null;
 
-        // 1) Check if a helper was explicitly configured via system property
-        //    (allows external integrations/containers to plug their own implementation).
+        // 1) System property: explicit helper configured by the environment
         String helperClass = System.getProperty(HELPER_PROPERTY);
         try {
             if (helperClass != null) {
@@ -177,13 +152,11 @@ public class ProjectHelper {
             }
         } catch (SecurityException e) {
             System.out.println("Unable to load ProjectHelper class \""
-                + helperClass + " specified in system property "
+                + helperClass + "\" specified in system property "
                 + HELPER_PROPERTY);
         }
 
-        // 2) If none configured, try JDK-style service discovery:
-        //    looks for META-INF/services/org.apache.tools.ant.ProjectHelper
-        //    using the context ClassLoader (app/server) and then the system ClassLoader.
+        // 2) Service discovery via META-INF/services/...
         if (helper == null) {
             try {
                 ClassLoader classLoader = LoaderUtils.getContextClassLoader(); // LoaderUtils: centralizes context loader access
@@ -197,7 +170,6 @@ public class ProjectHelper {
                 }
 
                 if (is != null) {
-                    // Service file is a simple text file: first line = FQCN of the helper implementation
                     InputStreamReader isr;
                     try {
                         isr = new InputStreamReader(is, "UTF-8");             // prefer UTF-8, as usual for service descriptors
@@ -215,11 +187,11 @@ public class ProjectHelper {
                 }
             } catch (Exception ex) {
                 System.out.println("Unable to load ProjectHelper "
-                    + "from service \"" + SERVICE_ID);
+                    + "from service \"" + SERVICE_ID + "\"");
             }
         }
 
-        // 3) If no custom helper was found, fall back to Ant's default XML-based helper.
+        // 3) Fallback to Ant's default XML helper
         if (helper != null) {
             return helper;
         } else {
@@ -229,8 +201,8 @@ public class ProjectHelper {
 
     /**
      * Creates a new helper instance from the name of the class.
-     * It'll first try the thread class loader, then Class.forName()
-     * will load from the same loader that loaded this class.
+     * It first tries the context class loader, then falls back to
+     * Class.forName().
      *
      * @param helperClass The name of the class to create an instance
      *                    of. Must not be <code>null</code>.
@@ -238,7 +210,7 @@ public class ProjectHelper {
      * @return a new instance of the specified class.
      *
      * @exception BuildException if the class cannot be found or
-     * cannot be appropriate instantiated.
+     * cannot be appropriately instantiated.
      */
     private static ProjectHelper newHelper(String helperClass)
         throws BuildException {
@@ -263,7 +235,7 @@ public class ProjectHelper {
 
     /**
      * JDK1.1 compatible access to the context class loader.
-     * Cut&paste from JAXP.
+     * Cut & paste from JAXP.
      *
      * @deprecated since 1.6.x.
      *             Use LoaderUtils.getContextClassLoader()
@@ -282,7 +254,7 @@ public class ProjectHelper {
     // -------------------- Static utils, used by most helpers ----------------
 
     /**
-     * Configures an object using an introspection handler.
+     * Configures an object using an introspection helper.
      *
      * @param target The target object to be configured.
      *               Must not be <code>null</code>.
@@ -307,7 +279,6 @@ public class ProjectHelper {
             IntrospectionHelper.getHelper(project, target.getClass()); // IntrospectionHelper: reflection-based property binder
 
         for (int i = 0; i < attrs.getLength(); i++) {
-            // reflect these into the target
             String value = replaceProperties(project, attrs.getValue(i),
                                              project.getProperties()); // resolve ${...} using project-wide properties
             try {
@@ -396,9 +367,8 @@ public class ProjectHelper {
      *
      * @param project The project containing the properties to replace.
      *                Must not be <code>null</code>.
-     *
-     * @param value The string to be scanned for property references.
-     *              May be <code>null</code>.
+     * @param value   The string to be scanned for property references.
+     *                May be <code>null</code>.
      *
      * @exception BuildException if the string contains an opening
      *                           <code>${</code> without a closing
@@ -410,23 +380,22 @@ public class ProjectHelper {
      *             Use project.replaceProperties().
      * @since 1.5
      */
-     public static String replaceProperties(Project project, String value)
+    public static String replaceProperties(Project project, String value)
             throws BuildException {
-        // needed since project properties are not accessible
-         return project.replaceProperties(value);              // delegate to Project's internal property resolution engine
-     }
+        return project.replaceProperties(value);              // delegate to Project's internal property resolution engine
+    }
 
     /**
      * Replaces <code>${xxx}</code> style constructions in the given value
      * with the string value of the corresponding data types.
      *
-     * @param project The container project. This is used solely for
-     *                logging purposes. Must not be <code>null</code>.
-     * @param value The string to be scanned for property references.
-     *              May be <code>null</code>, in which case this
-     *              method returns immediately with no effect.
-     * @param keys  Mapping (String to String) of property names to their
-     *              values. Must not be <code>null</code>.
+     * @param project The container project. Used solely for logging.
+     *                Must not be <code>null</code>.
+     * @param value   The string to be scanned for property references.
+     *                May be <code>null</code>, in which case this
+     *                method returns immediately with no effect.
+     * @param keys    Mapping (String to String) of property names to their
+     *                values. Must not be <code>null</code>.
      *
      * @exception BuildException if the string contains an opening
      *                           <code>${</code> without a closing
@@ -436,7 +405,7 @@ public class ProjectHelper {
      * @deprecated since 1.6.x.
      *             Use PropertyHelper.
      */
-     public static String replaceProperties(Project project, String value,
+    public static String replaceProperties(Project project, String value,
          Hashtable keys) throws BuildException {
         PropertyHelper ph = PropertyHelper.getPropertyHelper(project); // PropertyHelper: pluggable property resolution strategy
         return ph.replaceProperties(null, value, keys);               // perform interpolation using external property map
@@ -449,9 +418,9 @@ public class ProjectHelper {
      * <code>null</code> entries in the first list indicate a property
      * reference from the second list.
      *
-     * @param value     Text to parse. Must not be <code>null</code>.
-     * @param fragments List to add text fragments to.
-     *                  Must not be <code>null</code>.
+     * @param value        Text to parse. Must not be <code>null</code>.
+     * @param fragments    List to add text fragments to.
+     *                     Must not be <code>null</code>.
      * @param propertyRefs List to add property names to.
      *                     Must not be <code>null</code>.
      *
@@ -467,14 +436,15 @@ public class ProjectHelper {
         PropertyHelper.parsePropertyStringDefault(value, fragments,
                 propertyRefs);                                  // shared default parsing routine for ${...} expressions
     }
+
     /**
      * Map a namespaced {uri,name} to an internal string format.
-     * For BC purposes the names from the ant core uri will be
-     * mapped to "name", other names will be mapped to
-     * uri + ":" + name.
-     * @param uri   The namepace URI
-     * @param name  The localname
-     * @return      The stringified form of the ns name
+     * For backwards compatibility, names from the Ant core URI will be
+     * mapped to "name"; other names will be mapped to
+     * "uri:name".
+     * @param uri   The namespace URI
+     * @param name  The local name
+     * @return      The stringified form of the namespaced name
      */
     public static String genComponentName(String uri, String name) {
         if (uri == null || uri.equals("") || uri.equals(ANT_CORE_URI)) {
@@ -484,10 +454,10 @@ public class ProjectHelper {
     }
 
     /**
-     * extract a uri from a component name
+     * Extract a URI from a component name.
      *
      * @param componentName  The stringified form for {uri, name}
-     * @return               The uri or "" if not present
+     * @return               The URI or "" if not present
      */
     public static String extractUriFromComponentName(String componentName) {
         if (componentName == null) {
@@ -501,7 +471,7 @@ public class ProjectHelper {
     }
 
     /**
-     * extract the element name from a component name
+     * Extract the element name from a component name.
      *
      * @param componentName  The stringified form for {uri, name}
      * @return               The element name of the component
@@ -515,13 +485,13 @@ public class ProjectHelper {
     }
 
     /**
-     * Add location to build exception.
-     * @param ex the build exception, if the build exception
-     *           does not include
+     * Add location to a BuildException error message to provide
+     * better diagnostics in nested calls.
+     *
+     * @param ex          the original BuildException
      * @param newLocation the location of the calling task (may be null)
-     * @return a new build exception based in the build exception with
-     *         location set to newLocation. If the original exception
-     *         did not have a location, just return the build exception
+     * @return a (possibly wrapped) BuildException with an augmented
+     *         error message and location.
      */
     public static BuildException addLocationToBuildException(
         BuildException ex, Location newLocation) {
