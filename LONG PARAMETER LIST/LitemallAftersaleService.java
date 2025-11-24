@@ -1,22 +1,22 @@
 package org.linlinjava.litemall.db.service;
 
-import org.linlinjava.litemall.db.dao.LitemallAftersaleMapper;
-import org.linlinjava.litemall.db.domain.LitemallAftersale;
-import org.linlinjava.litemall.db.domain.LitemallAftersaleExample;
-import org.linlinjava.litemall.db.domain.LitemallAftersale.Column;
+import org.linlinjava.litemall.db.dao.LitemallAftersaleMapper;      // LitemallAftersaleMapper: MyBatis mapper for CRUD on aftersale table
+import org.linlinjava.litemall.db.domain.LitemallAftersale;        // LitemallAftersale: domain model representing an aftersale record
+import org.linlinjava.litemall.db.domain.LitemallAftersaleExample; // LitemallAftersaleExample: MyBatis example/criteria builder for queries
+import org.linlinjava.litemall.db.domain.LitemallAftersale.Column; // Column: type-safe column constants (e.g. addTime.desc()) for ORDER BY
 
-import com.github.pagehelper.PageHelper;
+import com.github.pagehelper.PageHelper;                           // PageHelper: plugin that intercepts MyBatis queries to apply pagination
 
-import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
+import org.springframework.stereotype.Service;                     // @Service: marks this class as a Spring service bean
+import org.springframework.util.StringUtils;                       // StringUtils: helper for null/empty checks on sort and order fields
 
-import javax.annotation.Resource;
+import javax.annotation.Resource;                                  // @Resource: JSR-250 injection annotation for wiring the mapper bean
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.List;
-import java.util.Random;
+import java.time.LocalDate;                                        // LocalDate: date without time used for simple date values (if needed)
+import java.time.LocalDateTime;                                    // LocalDateTime: date-time used when generating time-based codes
+import java.time.format.DateTimeFormatter;                         // DateTimeFormatter: formats dates into the yyyyMMdd pattern
+import java.util.List;                                             // List: collection type for returning pages of aftersale records
+import java.util.Random;                                           // Random: generates numeric suffix for aftersaleSn codes
 
 /**
  * Service responsible for user aftersale (post-sale) operations.
