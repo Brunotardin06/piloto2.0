@@ -5,19 +5,20 @@
 
 package CH.ifa.draw.figures;
 
-import java.util.*;
-import java.awt.*;
-import java.io.*;
-import CH.ifa.draw.framework.*;
-import CH.ifa.draw.standard.*;
-import CH.ifa.draw.util.*;
+import java.util.*;            // java.util: collections (e.g., Vector) used for handles and listeners
+import java.awt.*;             // java.awt: graphics primitives (Font, Color, Rectangle, Point, etc.)
+import java.io.*;              // java.io: serialization support (ObjectInputStream, IOException)
+
+import CH.ifa.draw.framework.*; // JHotDraw framework core (Figure, FigureChangeListener, TextHolder, FigureChangeEvent)
+import CH.ifa.draw.standard.*;  // JHotDraw standard implementations (handles, locators, attribute figures)
+import CH.ifa.draw.util.*;      // JHotDraw utilities (ColorMap, StorableInput/Output, serialization helpers)
 
 /**
  * A text figure.
  *
  * @see TextTool
  */
-public  class TextFigure
+public class TextFigure
         extends AttributeFigure
         implements FigureChangeListener, TextHolder {
 
