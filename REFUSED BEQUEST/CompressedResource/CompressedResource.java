@@ -17,15 +17,15 @@
  */
 package org.apache.tools.ant.types.resources;
 
-import java.io.InputStream;
-import java.io.IOException;
-import java.io.OutputStream;
+import java.io.InputStream;          // InputStream: reading bytes from the wrapped resource
+import java.io.IOException;          // IOException: I/O error signaling for stream operations
+import java.io.OutputStream;         // OutputStream: writing bytes to the wrapped resource
 
-import org.apache.tools.ant.BuildException;
-import org.apache.tools.ant.types.Resource;
-import org.apache.tools.ant.types.Reference;
-import org.apache.tools.ant.types.ResourceCollection;
-import org.apache.tools.ant.util.FileUtils;
+import org.apache.tools.ant.BuildException;            // BuildException: Ant runtime/configuration error type
+import org.apache.tools.ant.types.Resource;            // Resource: generic Ant abstraction over files/URLs/etc.
+import org.apache.tools.ant.types.Reference;           // Reference: allows pointing to another defined Resource
+import org.apache.tools.ant.types.ResourceCollection;  // ResourceCollection: group of Resource instances
+import org.apache.tools.ant.util.FileUtils;            // FileUtils: utility for safely closing/handling streams
 
 /**
  * A compressed resource.
