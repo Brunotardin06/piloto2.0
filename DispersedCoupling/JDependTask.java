@@ -18,28 +18,29 @@
 
 package org.apache.tools.ant.taskdefs.optional.jdepend;
 
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
-import java.util.Vector;
-import java.util.Enumeration;
-import org.apache.tools.ant.BuildException;
-import org.apache.tools.ant.Project;
-import org.apache.tools.ant.Task;
-import org.apache.tools.ant.taskdefs.Execute;
-import org.apache.tools.ant.taskdefs.ExecuteWatchdog;
-import org.apache.tools.ant.taskdefs.LogStreamHandler;
-import org.apache.tools.ant.types.Commandline;
-import org.apache.tools.ant.types.CommandlineJava;
-import org.apache.tools.ant.types.EnumeratedAttribute;
-import org.apache.tools.ant.types.Path;
-import org.apache.tools.ant.types.PatternSet;
-import org.apache.tools.ant.types.Reference;
-import org.apache.tools.ant.util.FileUtils;
-import org.apache.tools.ant.util.LoaderUtils;
+import java.io.File;                        // JDK File: represents directories and files (class directories, output file, etc.)
+import java.io.FileWriter;                  // JDK FileWriter: character stream to write the JDepend report file
+import java.io.IOException;                 // JDK IOException: signals I/O failures while preparing directories or report
+import java.io.PrintWriter;                 // JDK PrintWriter: higher-level writer passed to JDepend for formatted output
+import java.lang.reflect.Constructor;       // JDK reflection Constructor: used to instantiate jdepend.framework.PackageFilter
+import java.lang.reflect.Method;            // JDK reflection Method: used to invoke JDepend.setFilter(...) if present
+import java.util.Vector;                    // JDK Vector: legacy list to hold exclude patterns for PackageFilter
+import java.util.Enumeration;               // JDK Enumeration: legacy iterator for environment variables / Vector contents
+
+import org.apache.tools.ant.BuildException; // Ant BuildException: wraps configuration/runtime problems as build failures
+import org.apache.tools.ant.Project;        // Ant Project: build context used for logging and property/path resolution
+import org.apache.tools.ant.Task;           // Ant Task: base class for custom/optional tasks (like <jdepend>) in build.xml
+import org.apache.tools.ant.taskdefs.Execute;               // Ant Execute: helper to fork an external JVM process
+import org.apache.tools.ant.taskdefs.ExecuteWatchdog;       // Ant ExecuteWatchdog: kills forked JVM after a timeout
+import org.apache.tools.ant.taskdefs.LogStreamHandler;      // Ant LogStreamHandler: routes forked JVM stdout/stderr to Ant log
+import org.apache.tools.ant.types.Commandline;              // Ant Commandline: models an OS-level command + arguments
+import org.apache.tools.ant.types.CommandlineJava;          // Ant CommandlineJava: models a 'java ...' invocation (VM + args)
+import org.apache.tools.ant.types.EnumeratedAttribute;      // Ant EnumeratedAttribute: base type for XML attributes with enums
+import org.apache.tools.ant.types.Path;                     // Ant Path: ordered collection of classpath-like filesystem entries
+import org.apache.tools.ant.types.PatternSet;               // Ant PatternSet: holds include/exclude patterns for paths/packages
+import org.apache.tools.ant.types.Reference;                // Ant Reference: indirect reference to a Path or other Ant datatype
+import org.apache.tools.ant.util.FileUtils;                 // Ant FileUtils: utility for safely closing streams and file ops
+import org.apache.tools.ant.util.LoaderUtils;               // Ant LoaderUtils: helper to locate resources via class loaders
 
 /**
  * Runs JDepend tests.
@@ -48,36 +49,38 @@ import org.apache.tools.ant.util.LoaderUtils;
  * It has been initially created by Mike Clark. JDepend can be found at <a
  * href="http://www.clarkware.com/software/JDepend.html">http://www.clarkware.com/software/JDepend.html</a>.
  *
- * The current implementation spawn a new Java VM.
- *
+ * The current implementation spawns a new Java VM (if fork is enabled).
  */
 public class JDependTask extends Task {
+
     //private CommandlineJava commandline = new CommandlineJava();
 
-    // required attributes
-    private Path sourcesPath; // Deprecated!
-    private Path classesPath; // Use this going forward
+    // Required attributes (where to read classes/sources from)
+    private Path sourcesPath;        // Ant Path: directories with source code – legacy, deprecated in favor of classesPath
+    private Path classesPath;        // Ant Path: directories/JARs with .class files to be analyzed by JDepend (preferred)
 
-    // optional attributes
-    private File outputFile;
-    private File dir;
-    private Path compileClasspath;
-    private boolean haltonerror = false;
-    private boolean fork = false;
-    private Long timeout = null;
+    // Optional attributes (how JDepend runs and where it writes output)
+    private File outputFile;         // Optional output file where the JDepend report will be stored
+    private File dir;                // Working directory when invoking JDepend in forked mode
+    private Path compileClasspath;   // Extra classpath for JDepend and dependencies when running forked
+    private boolean haltonerror = false; // If true, JDepend failure stops the build with BuildException
+    private boolean fork = false;         // If true, JDepend runs in a separate JVM; otherwise in-process
+    private Long timeout = null;          // Timeout in milliseconds for the forked process (only relevant in fork mode)
 
-    private String jvm = null;
-    private String format = "text";
-    private PatternSet defaultPatterns = new PatternSet();
+    private String jvm = null;            // Custom JVM launcher command (e.g., "java", "javaw") when fork == true
+    private String format = "text";       // Report format: "text" (default) or "xml"
+    private PatternSet defaultPatterns = new PatternSet(); // Stores <exclude> patterns for packages
 
-    private static Constructor packageFilterC;
-    private static Method setFilter;
+    // Optional support for JDepend package filtering via reflection
+    private static Constructor packageFilterC; // Constructor for jdepend.framework.PackageFilter(Collection)
+    private static Method setFilter;           // Method handle for JDepend.setFilter(PackageFilter) if available
 
-    private boolean includeRuntime = false;
-    private Path runtimeClasses = null;
+    private boolean includeRuntime = false;    // If true, adds the current process CLASSPATH to the forked JVM
+    private Path runtimeClasses = null;        // Path that accumulates runtime classes/JARs to be added for forked execution
 
     static {
         try {
+            // Try to load the PackageFilter API from JDepend (external library)
             Class packageFilter =
                 Class.forName("jdepend.framework.PackageFilter");
             packageFilterC =
@@ -86,6 +89,7 @@ public class JDependTask extends Task {
                 jdepend.textui.JDepend.class.getDeclaredMethod("setFilter",
                                                                new Class[] {packageFilter});
         } catch (Throwable t) {
+            // If anything fails, disable filter support gracefully
             if (setFilter == null) {
                 packageFilterC = null;
             }
@@ -93,10 +97,9 @@ public class JDependTask extends Task {
     }
 
     /**
-     * If true,
-     *  include jdepend.jar in the forked VM.
+     * If true, include jdepend.jar in the forked VM, by pulling it from the runtime.
      *
-     * @param b include ant run time yes or no
+     * @param b include Ant runtime yes or no
      * @since Ant 1.6
      */
     public void setIncluderuntime(boolean b) {
@@ -106,8 +109,8 @@ public class JDependTask extends Task {
     /**
      * Set the timeout value (in milliseconds).
      *
-     * <p>If the operation is running for more than this value, the jdepend
-     * will be canceled. (works only when in 'fork' mode).</p>
+     * <p>If the operation is running for more than this value, the JDepend
+     * process will be canceled (only works in fork mode).</p>
      * @param value the maximum time (in milliseconds) allowed before
      * declaring the test as 'timed-out'
      * @see #setFork(boolean)
@@ -157,8 +160,7 @@ public class JDependTask extends Task {
     /**
      * If true, forks into a new JVM. Default: false.
      *
-     * @param   value   <tt>true</tt> if a JVM should be forked,
-     *                  otherwise <tt>false<tt>
+     * @param   value   true if a JVM should be forked, otherwise false
      */
     public void setFork(boolean value) {
         fork = value;
@@ -174,19 +176,18 @@ public class JDependTask extends Task {
     /**
      * The command used to invoke a forked Java Virtual Machine.
      *
-     * Default is <tt>java</tt>. Ignored if no JVM is forked.
-     * @param   value   the new VM to use instead of <tt>java</tt>
+     * Default is "java". Ignored if no JVM is forked.
+     * @param   value   the new VM launcher to use instead of "java"
      * @see #setFork(boolean)
      */
     public void setJvm(String value) {
         jvm = value;
-
     }
 
     /**
      * Adds a path to source code to analyze.
      * @return a source path
-     * @deprecated since 1.6.x.
+     * @deprecated since Ant 1.6.x – classesPath should be used instead.
      */
     public Path createSourcespath() {
         if (sourcesPath == null) {
@@ -196,16 +197,16 @@ public class JDependTask extends Task {
     }
 
     /**
-     * Gets the sourcepath.
+     * Gets the sources path.
      * @return the sources path
-     * @deprecated since 1.6.x.
+     * @deprecated since Ant 1.6.x – classesPath should be used instead.
      */
     public Path getSourcespath() {
         return sourcesPath;
     }
 
     /**
-     * Adds a path to class code to analyze.
+     * Adds a path to class files to analyze.
      * @return a classes path
      */
     public Path createClassespath() {
@@ -216,7 +217,7 @@ public class JDependTask extends Task {
     }
 
     /**
-     * Gets the classespath.
+     * Gets the classes path.
      * @return the classes path
      */
     public Path getClassespath() {
@@ -240,7 +241,7 @@ public class JDependTask extends Task {
     }
 
     /**
-     * Set the classpath to be used for this compilation.
+     * Set the classpath to be used for this execution.
      * @param classpath a class path to be used
      */
     public void setClasspath(Path classpath) {
@@ -252,8 +253,8 @@ public class JDependTask extends Task {
     }
 
     /**
-     * Gets the classpath to be used for this compilation.
-     * @return the class path used for compilation
+     * Gets the classpath to be used for this execution.
+     * @return the class path used for JDepend
      */
     public Path getClasspath() {
         return compileClasspath;
@@ -273,8 +274,7 @@ public class JDependTask extends Task {
     /**
      * Create a new JVM argument. Ignored if no JVM is forked.
      * @param commandline the commandline to create the argument on
-     * @return  create a new JVM argument so that any argument can
-     *          be passed to the JVM.
+     * @return a JVM argument (e.g., -Xmx, -classpath)
      * @see #setFork(boolean)
      */
     public Commandline.Argument createJvmarg(CommandlineJava commandline) {
@@ -290,8 +290,8 @@ public class JDependTask extends Task {
     }
 
     /**
-     * add a name entry on the exclude list
-     * @return a pattern for the excludes
+     * Add a name entry on the exclude list.
+     * @return a pattern entry for the excludes
      */
     public PatternSet.NameEntry createExclude() {
         return defaultPatterns.createExclude();
@@ -314,8 +314,7 @@ public class JDependTask extends Task {
     }
 
     /**
-     * A class for the enumerated attribute format,
-     * values are xml and text.
+     * A class for the enumerated attribute "format", values are "xml" and "text".
      * @see EnumeratedAttribute
      */
     public static class FormatAttribute extends EnumeratedAttribute {
@@ -332,11 +331,11 @@ public class JDependTask extends Task {
     /**
      * No problems with this test.
      */
-    private static final int SUCCESS = 0;
+    private static final int SUCCESS = 0; // Exit code for success
     /**
      * An error occurred.
      */
-    private static final int ERRORS = 1;
+    private static final int ERRORS = 1;  // Exit code for errors
 
     /**
      * Search for the given resource and add the directory or archive
@@ -350,7 +349,7 @@ public class JDependTask extends Task {
      */
     private void addClasspathEntry(String resource) {
         /*
-         * pre Ant 1.6 this method used to call getClass().getResource
+         * Pre Ant 1.6 this method used to call getClass().getResource
          * while Ant 1.6 will call ClassLoader.getResource().
          *
          * The difference is that Class.getResource expects a leading
@@ -365,31 +364,33 @@ public class JDependTask extends Task {
                 + resource;
         }
 
+        // Delegates to LoaderUtils (external Ant util) to resolve the physical container of the JDepend class
         File f = LoaderUtils.getResourceSource(getClass().getClassLoader(),
                                                resource);
         if (f != null) {
             log("Found " + f.getAbsolutePath(), Project.MSG_DEBUG);
+            // The resolved file/JAR is added to runtimeClasses, later used when configuring the forked JVM classpath
             runtimeClasses.createPath().setLocation(f);
         } else {
-            log("Couldn\'t find " + resource, Project.MSG_DEBUG);
+            log("Couldn't find " + resource, Project.MSG_DEBUG);
         }
     }
 
     /**
-     * execute the task
+     * Execute the task.
      *
      * @exception BuildException if an error occurs
      */
     public void execute() throws BuildException {
 
-        CommandlineJava commandline = new CommandlineJava();
+        CommandlineJava commandline = new CommandlineJava(); // Command model for "java ..." when running forked
 
+        // Here the task selects which external JDepend main class will be used when running in forked mode
         if ("text".equals(format)) {
             commandline.setClassname("jdepend.textui.JDepend");
-        } else
-            if ("xml".equals(format)) {
-                commandline.setClassname("jdepend.xmlui.JDepend");
-            }
+        } else if ("xml".equals(format)) {
+            commandline.setClassname("jdepend.xmlui.JDepend");
+        }
 
         if (jvm != null) {
             commandline.setVm(jvm);
@@ -403,22 +404,23 @@ public class JDependTask extends Task {
             log(msg);
         }
 
-        // execute the test and get the return code
+        // Execute the test and get the return code
         int exitValue = JDependTask.ERRORS;
         boolean wasKilled = false;
         if (!getFork()) {
+            // In-process execution: JDepend runs inside the same JVM as Ant (direct API usage)
             exitValue = executeInVM(commandline);
         } else {
+            // Forked execution: JDepend runs in a separate JVM (via Execute/ExecuteWatchdog)
             ExecuteWatchdog watchdog = createWatchdog();
             exitValue = executeAsForked(commandline, watchdog);
-            // null watchdog means no timeout, you'd better not check with null
+            // Null watchdog means no timeout; only check if watchdog was created
             if (watchdog != null) {
                 wasKilled = watchdog.killedProcess();
             }
         }
 
-        // if there is an error/failure and that it should halt, stop
-        // everything otherwise just log a statement
+        // Decide whether an error occurred (exit code or timeout)
         boolean errorOccurred = exitValue == JDependTask.ERRORS || wasKilled;
 
         if (errorOccurred) {
@@ -426,35 +428,38 @@ public class JDependTask extends Task {
                 + (wasKilled ? " - Timed out" : "");
 
             if  (getHaltonerror()) {
+                // Fatal mode: fail the whole build
                 throw new BuildException(errorMessage, getLocation());
             } else {
+                // Non-fatal mode: just log an error
                 log(errorMessage, Project.MSG_ERR);
             }
         }
     }
 
-    // this comment extract from JUnit Task may also apply here
+    // Comment from JUnit Task also applies here:
     // "in VM is not very nice since it could probably hang the
     // whole build. IMHO this method should be avoided and it would be best
     // to remove it in future versions. TBD. (SBa)"
 
     /**
-     * Execute inside VM.
+     * Execute inside the current JVM.
      *
-     * @param commandline the command line
-     * @return the return value of the mvm
+     * @param commandline the command line descriptor (used mostly for consistency)
+     * @return the return value of the in-VM execution
      * @exception BuildException if an error occurs
      */
     public int executeInVM(CommandlineJava commandline) throws BuildException {
         jdepend.textui.JDepend jdepend;
 
+        // Directly instantiates the external JDepend runner (text or XML UI) according to the chosen format
         if ("xml".equals(format)) {
             jdepend = new jdepend.xmlui.JDepend();
         } else {
             jdepend = new jdepend.textui.JDepend();
         }
 
-        FileWriter fw = null;
+        FileWriter fw = null; // Optional writer for file output
         if (getOutputFile() != null) {
             try {
                 fw = new FileWriter(getOutputFile().getPath());
@@ -464,21 +469,18 @@ public class JDependTask extends Task {
                 log(msg);
                 throw new BuildException(msg);
             }
+            // JDepend will write its report through this PrintWriter instead of stdout
             jdepend.setWriter(new PrintWriter(fw));
             log("Output to be stored in " + getOutputFile().getPath());
         }
 
-
         try {
             if (getClassespath() != null) {
-                // This is the new, better way - use classespath instead
-                // of sourcespath.  The code is currently the same - you
-                // need class files in a directory to use this or jar files.
+                // Preferred path: analyze compiled classes from classesPath
                 String[] cP = getClassespath().list();
                 for (int i = 0; i < cP.length; i++) {
                     File f = new File(cP[i]);
-                    // not necessary as JDepend would fail, but why loose
-                    // some time?
+                    // Quick validation to avoid obscure JDepend errors
                     if (!f.exists()) {
                         String msg = "\""
                             + f.getPath()
@@ -488,6 +490,7 @@ public class JDependTask extends Task {
                         throw new BuildException(msg);
                     }
                     try {
+                        // Each valid directory/JAR is handed over to the JDepend API as an analysis root
                         jdepend.addDirectory(f.getPath());
                     } catch (IOException e) {
                         String msg =
@@ -500,14 +503,12 @@ public class JDependTask extends Task {
 
             } else if (getSourcespath() != null) {
 
-                // This is the old way and is deprecated - classespath is
-                // the right way to do this and is above
+                // Legacy path: analyze source directories from sourcesPath
                 String[] sP = getSourcespath().list();
                 for (int i = 0; i < sP.length; i++) {
                     File f = new File(sP[i]);
 
-                    // not necessary as JDepend would fail, but why loose
-                    // some time?
+                    // Quick validation before invoking JDepend
                     if (!f.exists() || !f.isDirectory()) {
                         String msg = "\""
                             + f.getPath()
@@ -517,6 +518,7 @@ public class JDependTask extends Task {
                         throw new BuildException(msg);
                     }
                     try {
+                        // Source directories are also registered with JDepend as analysis roots
                         jdepend.addDirectory(f.getPath());
                     } catch (IOException e) {
                         String msg =
@@ -528,7 +530,7 @@ public class JDependTask extends Task {
                 }
             }
 
-            // This bit turns <exclude> child tags into patters to ignore
+            // Convert <exclude> tags into patterns for the JDepend filter
             String[] patterns = defaultPatterns.getExcludePatterns(getProject());
             if (patterns != null && patterns.length > 0) {
                 if (setFilter != null) {
@@ -537,18 +539,21 @@ public class JDependTask extends Task {
                         v.addElement(patterns[i]);
                     }
                     try {
+                        // Builds a JDepend PackageFilter instance via reflection and applies it
                         Object o = packageFilterC.newInstance(new Object[] {v});
                         setFilter.invoke(jdepend, new Object[] {o});
                     } catch (Throwable e) {
-                        log("excludes will be ignored as JDepend doesn't like me: "
+                        log("Excludes will be ignored as JDepend doesn't like me: "
                             + e.getMessage(), Project.MSG_WARN);
                     }
                 } else {
+                    // Older JDepend versions do not support excludes
                     log("Sorry, your version of JDepend doesn't support excludes",
                         Project.MSG_WARN);
                 }
             }
 
+            // Delegates to JDepend's analyze() method, which performs the package analysis and writes the report
             jdepend.analyze();
         } finally {
             FileUtils.close(fw);
@@ -558,32 +563,30 @@ public class JDependTask extends Task {
 
 
     /**
-     * Execute the task by forking a new JVM. The command will block until
-     * it finishes. To know if the process was destroyed or not, use the
-     * <tt>killedProcess()</tt> method of the watchdog class.
-     * @param commandline the commandline for forked jvm
-     * @param  watchdog   the watchdog in charge of cancelling the test if it
-     * exceeds a certain amount of time. Can be <tt>null</tt>.
-     * @return the result of running the jdepend
+     * Execute the task by forking a new JVM. The call blocks until the process finishes.
+     * To know if the process was destroyed by timeout, use killedProcess() on the watchdog.
+     * @param commandline the commandline for the forked JVM
+     * @param watchdog    the watchdog that cancels the test if it exceeds the configured time (may be null)
+     * @return the result of running JDepend (its exit code)
      * @throws BuildException in case of error
      */
-    // JL: comment extracted from JUnitTask (and slightly modified)
     public int executeAsForked(CommandlineJava commandline,
                                ExecuteWatchdog watchdog) throws BuildException {
-        runtimeClasses = new Path(getProject());
+        runtimeClasses = new Path(getProject()); // Path that accumulates runtime classes/JARs
+        // Uses addClasspathEntry to discover where the external JDepend classes live and include them for the forked JVM
         addClasspathEntry("/jdepend/textui/JDepend.class");
 
-        // if not set, auto-create the ClassPath from the project
+        // Ensure we have a Path for the classpath even if not explicitly set
         createClasspath();
 
-        // not sure whether this test is needed but cost nothing to put.
-        // hope it will be reviewed by anybody competent
+        // If there is any configured classpath, wire it into the JVM args
         if (getClasspath().toString().length() > 0) {
             createJvmarg(commandline).setValue("-classpath");
             createJvmarg(commandline).setValue(getClasspath().toString());
         }
 
         if (includeRuntime) {
+            // Merge CLASSPATH from the current process into the forked JDepend classpath
             Vector v = Execute.getProcEnvironment();
             Enumeration e = v.elements();
             while (e.hasMoreElements()) {
@@ -602,22 +605,17 @@ public class JDependTask extends Task {
         }
 
         if (getOutputFile() != null) {
-            // having a space between the file and its path causes commandline
-            // to add quotes around the argument thus making JDepend not taking
-            // it into account. Thus we split it in two
+            // Split "-file <path>" into separate arguments to avoid quoting issues
             commandline.createArgument().setValue("-file");
             commandline.createArgument().setValue(outputFile.getPath());
-            // we have to find a cleaner way to put this output
         }
 
         if (getSourcespath() != null) {
-            // This is deprecated - use classespath in the future
+            // Legacy: pass source directories as arguments to JDepend CLI
             String[] sP = getSourcespath().list();
             for (int i = 0; i < sP.length; i++) {
                 File f = new File(sP[i]);
 
-                // not necessary as JDepend would fail, but why loose
-                // some time?
                 if (!f.exists() || !f.isDirectory()) {
                     throw new BuildException("\"" + f.getPath()
                                              + "\" does not represent a valid"
@@ -629,13 +627,10 @@ public class JDependTask extends Task {
         }
 
         if (getClassespath() != null) {
-            // This is the new way - use classespath - code is the
-            // same for now
+            // Preferred: pass class directories/JARs as arguments to JDepend CLI
             String[] cP = getClassespath().list();
             for (int i = 0; i < cP.length; i++) {
                 File f = new File(cP[i]);
-                // not necessary as JDepend would fail, but why loose
-                // some time?
                 if (!f.exists()) {
                     throw new BuildException("\"" + f.getPath()
                                              + "\" does not represent a valid"
@@ -646,6 +641,7 @@ public class JDependTask extends Task {
             }
         }
 
+        // Execute encapsulates process creation and delegates actual JDepend execution to an external JVM process
         Execute execute = new Execute(new LogStreamHandler(this,
             Project.MSG_INFO, Project.MSG_WARN), watchdog);
         execute.setCommandline(commandline.getCommandline());
@@ -666,14 +662,16 @@ public class JDependTask extends Task {
     }
 
     /**
-     * @return <tt>null</tt> if there is a timeout value, otherwise the
-     * watchdog instance.
+     * Create a watchdog based on the configured timeout.
+     *
+     * @return null if there is no timeout value, otherwise a watchdog instance.
      * @throws BuildException in case of error
      */
     protected ExecuteWatchdog createWatchdog() throws BuildException {
         if (getTimeout() == null) {
             return null;
         }
+        // Wraps the external process with an ExecuteWatchdog so that long-running JDepend runs can be aborted
         return new ExecuteWatchdog(getTimeout().longValue());
     }
 }
